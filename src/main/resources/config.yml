@@ -1,0 +1,39 @@
+providers:
+  default: openai
+  list:
+    openai:
+      type: openai
+      api-base: https://api.openai.com/v1
+      api-key: "请在此填写你的 OpenAI API Key"
+      model: gpt-5-chat-latest
+      temperature: 0.8
+      max-tokens: 512
+      timeout-seconds: 30
+    # doubao:
+    #   type: doubao
+    #   api-base: https://ark.cn-beijing.volces.com/api/v3
+    #   api-key: "豆包开放平台的 API Key"
+    #   model: ep-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    #   temperature: 0.8
+    #   max-tokens: 512
+    #   timeout-seconds: 30
+    # vllm-local:
+    #   type: vllm
+    #   api-base: http://127.0.0.1:8000/v1
+    #   api-key: ""  # 本地部署通常不需要 API Key
+    #   model: mistral-instruct
+    #   temperature: 0.7
+    #   max-tokens: 512
+    #   timeout-seconds: 30
+conversation:
+  memory-window: 16
+  max-response-tokens: 512
+prompt:
+  system-template: |
+    你将扮演{name}，与玩家{user}进行角色扮演对话。
+    {name} 的简介：{description}
+    额外设定：{persona}
+    请根据这些信息做出自然、有趣且连贯的回应。回复要简短，控制在30字以内。
+  extra-notes:
+    - 保持语气贴合{name}的性格，不要透露你是语言模型。
+    - 如玩家询问与设定冲突的问题，请以角色身份圆场解决。

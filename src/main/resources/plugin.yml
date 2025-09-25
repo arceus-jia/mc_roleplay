@@ -1,0 +1,17 @@
+name: MRPVillagerRoleplay
+version: 0.1.0
+main: me.arceus.mrp.MrpPlugin
+api-version: "1.20"
+author: arceus
+commands:
+  mrp:
+    description: 主命令，用于管理 MRP 村民
+    usage: /<command>
+    permission: mrp.use
+permissions:
+  mrp.use:
+    description: 允许基本对话与查询命令
+    default: true
+  mrp.admin:
+    description: 允许使用所有 MRP 管理命令
+    default: op
