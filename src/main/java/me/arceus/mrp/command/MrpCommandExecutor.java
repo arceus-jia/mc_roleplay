@@ -219,7 +219,7 @@ public class MrpCommandExecutor implements CommandExecutor {
 
     private boolean handleCharacter(CommandSender sender, String[] args) {
         if (args.length == 0) {
-            sender.sendMessage("用法: /mrp character <reload|clear|tp|delete> [名称|UUID]");
+            sender.sendMessage("用法: /mrp character <reload|clear|tp|freeze|delete> ...");
             return true;
         }
 
@@ -233,11 +233,13 @@ public class MrpCommandExecutor implements CommandExecutor {
                 return handleCharacterClear(sender, token);
             case "tp":
                 return handleCharacterTeleport(sender, token);
+            case "freeze":
+                return handleCharacterFreeze(sender, args);
             case "delete":
                 return handleCharacterDelete(sender, token);
             default:
                 sender.sendMessage("未知的 character 子命令: " + action);
-                sender.sendMessage("用法: /mrp character <reload|clear|tp|delete> [名称|UUID]");
+                sender.sendMessage("用法: /mrp character <reload|clear|tp|freeze|delete> ...");
                 return true;
         }
     }
@@ -298,9 +300,63 @@ public class MrpCommandExecutor implements CommandExecutor {
             return true;
         }
 
-        villager.teleport(player.getLocation());
+        var targetLocation = player.getLocation().clone();
+        sender.sendMessage("正在尝试传送 " + formatVillagerLabel(profile) + " ...");
+
+        var world = targetLocation.getWorld();
+        if (world != null) {
+            int chunkX = targetLocation.getBlockX() >> 4;
+            int chunkZ = targetLocation.getBlockZ() >> 4;
+            if (!world.isChunkLoaded(chunkX, chunkZ)) {
+                world.getChunkAt(chunkX, chunkZ);
+            }
+        }
+
+        boolean success = villager.teleport(targetLocation);
         plugin.applyNpcProtection(villager);
-        sender.sendMessage("已将 " + formatVillagerLabel(profile) + " 传送至当前位置。");
+        if (success) {
+            sender.sendMessage("已将 " + formatVillagerLabel(profile) + " 传送至当前位置。");
+        } else {
+            sender.sendMessage("传送失败，目标区块可能未加载。");
+        }
+        return true;
+    }
+
+    private boolean handleCharacterFreeze(CommandSender sender, String[] args) {
+        if (!requireAdmin(sender)) {
+            return true;
+        }
+        if (args.length < 3) {
+            sender.sendMessage("用法: /mrp character freeze <名称|ID|UUID> <on|off>");
+            return true;
+        }
+
+        String stateToken = args[args.length - 1].toLowerCase(Locale.ROOT);
+        boolean freeze;
+        if (stateToken.equals("on") || stateToken.equals("true") || stateToken.equals("yes") || stateToken.equals("enable")) {
+            freeze = true;
+        } else if (stateToken.equals("off") || stateToken.equals("false") || stateToken.equals("no") || stateToken.equals("disable")) {
+            freeze = false;
+        } else {
+            sender.sendMessage("状态参数仅支持 on/off。");
+            return true;
+        }
+
+        String targetToken = String.join(" ", Arrays.copyOfRange(args, 1, args.length - 1));
+        VillagerProfile profile = resolveVillager(sender, targetToken, sender instanceof Player);
+        if (profile == null) {
+            return true;
+        }
+
+        profile.setFreezeAi(freeze);
+        plugin.getVillagerRegistry().saveVillagers();
+
+        Entity entity = Bukkit.getEntity(profile.getVillagerId());
+        if (entity instanceof Villager villager) {
+            plugin.applyNpcProtection(villager);
+        }
+
+        sender.sendMessage("已将 " + formatVillagerLabel(profile) + " 的行为状态设置为 " + (freeze ? "静止" : "可移动") + "。");
         return true;
     }
 
@@ -338,6 +394,7 @@ public class MrpCommandExecutor implements CommandExecutor {
         sender.sendMessage("/" + label + " character reload <名称|ID|UUID> - 重载村民配置 (管理员)");
         sender.sendMessage("/" + label + " character clear [名称|ID|UUID] - 清空与村民的对话历史");
         sender.sendMessage("/" + label + " character tp [名称|ID|UUID] - 将村民传送到你身边");
+        sender.sendMessage("/" + label + " character freeze <名称|ID|UUID> <on|off> - 切换村民是否原地静止");
         sender.sendMessage("/" + label + " character delete <名称|ID|UUID> - 删除村民 (管理员)");
         sender.sendMessage("/" + label + " help - 查看命令帮助");
         return true;

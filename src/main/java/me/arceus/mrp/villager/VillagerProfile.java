@@ -10,6 +10,7 @@ public class VillagerProfile {
     private String description;
     private String persona;
     private String modelOverride;
+    private boolean freezeAi;
 
     // Gson 需要无参构造函数
     public VillagerProfile() {
@@ -53,6 +54,10 @@ public class VillagerProfile {
         return modelOverride;
     }
 
+    public boolean isFreezeAi() {
+        return freezeAi;
+    }
+
     public void setVillagerId(UUID villagerId) {
         this.villagerId = villagerId;
     }
@@ -75,5 +80,9 @@ public class VillagerProfile {
 
     public void setModelOverride(String modelOverride) {
         this.modelOverride = modelOverride;
+    }
+
+    public void setFreezeAi(boolean freezeAi) {
+        this.freezeAi = freezeAi;
     }
 }

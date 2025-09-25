@@ -17,6 +17,7 @@ import org.bukkit.World;
 import org.bukkit.entity.Villager;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.Vector;
 
 import java.util.Objects;
 
@@ -124,6 +125,25 @@ public class MrpPlugin extends JavaPlugin {
         villager.setInvulnerable(true);
         villager.setRemoveWhenFarAway(false);
         villager.setPersistent(true);
+
+        boolean freeze = false;
+        if (villagerRegistry != null) {
+            var profile = villagerRegistry.getProfile(villager.getUniqueId());
+            if (profile != null) {
+                freeze = profile.isFreezeAi();
+            }
+        }
+
+        if (freeze) {
+            villager.setAI(false);
+            villager.setAware(false);
+            villager.setCollidable(false);
+            villager.setVelocity(new Vector(0, 0, 0));
+        } else {
+            villager.setAI(true);
+            villager.setAware(true);
+            villager.setCollidable(true);
+        }
     }
 
     public void refreshNpcProtections() {
