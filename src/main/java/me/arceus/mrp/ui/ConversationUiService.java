@@ -198,45 +198,87 @@ public class ConversationUiService implements Listener {
     }
 
     private List<String> buildBookPages(List<ConversationMessage> history, String playerName, String villagerName) {
-        final int maxLines = 12;
-        final int maxChars = 240;
+        final int maxLinesPerPage = 13;
+        final int maxCharsPerPage = 220;
 
-        List<String> pages = new ArrayList<>();
-        StringBuilder builder = new StringBuilder();
-        int lineCount = 0;
+        List<String> rawPages = new ArrayList<>();
+        StringBuilder buf = new StringBuilder();
+        int usedLines = 0;
+        int usedChars = 0;
 
         for (int idx = history.size() - 1; idx >= 0; idx--) {
-            ConversationMessage message = history.get(idx);
-            boolean fromPlayer = message.getRole() == ProviderMessage.Role.USER;
+            ConversationMessage msg = history.get(idx);
+            boolean fromPlayer = msg.getRole() == ProviderMessage.Role.USER;
             String speaker = fromPlayer ? playerName : villagerName;
-            String content = message.getContent() != null ? message.getContent() : "";
+            String headerBase = ChatColor.GOLD + speaker + ChatColor.RESET;
+            List<String> body = wrapForBook(msg.getContent());
+            if (body.isEmpty()) body = List.of("");
 
-            List<String> entryLines = new ArrayList<>();
-            entryLines.add(ChatColor.GOLD + speaker + ChatColor.RESET + ":");
-            entryLines.addAll(wrapForBook(content));
-            entryLines.add("");
+            int i = 0;
+            boolean firstSeg = true;
+            while (i < body.size()) {
+                String header = (firstSeg ? headerBase + ":" : headerBase + " (续):");
+                int headerCost = header.length() + 1;
 
-            for (String line : entryLines) {
-                if (lineCount >= maxLines || builder.length() + line.length() > maxChars) {
-                    pages.add(trimTrailingNewline(builder));
-                    builder = new StringBuilder();
-                    lineCount = 0;
+                boolean needNewPage = false;
+                if (usedLines > 0) {
+                    if ((maxLinesPerPage - usedLines) < 2) needNewPage = true;
+                    if (!needNewPage && usedChars + headerCost + 1 > maxCharsPerPage) needNewPage = true;
                 }
-                builder.append(line);
-                builder.append('\n');
-                lineCount++;
+                if (needNewPage) {
+                    rawPages.add(trimTrailingNewline(buf));
+                    buf = new StringBuilder();
+                    usedLines = 0;
+                    usedChars = 0;
+                }
+
+                // 标题
+                buf.append(header).append('\n');
+                usedLines += 1;
+                usedChars += headerCost;
+
+                // 内容
+                while (i < body.size()) {
+                    String line = body.get(i);
+                    int cost = line.length() + 1;
+                    if (usedLines >= maxLinesPerPage || usedChars + cost > maxCharsPerPage) {
+                        rawPages.add(trimTrailingNewline(buf));
+                        buf = new StringBuilder();
+                        usedLines = 0;
+                        usedChars = 0;
+                        firstSeg = false;
+                        break;
+                    }
+                    buf.append(line).append('\n');
+                    usedLines += 1;
+                    usedChars += cost;
+                    i++;
+                }
+                if (i >= body.size()) firstSeg = false;
+            }
+
+            // 消息之间空行
+            if (idx > 0) {
+                if (usedLines >= maxLinesPerPage || usedChars + 1 > maxCharsPerPage) {
+                    rawPages.add(trimTrailingNewline(buf));
+                    buf = new StringBuilder();
+                    usedLines = 0;
+                    usedChars = 0;
+                } else {
+                    buf.append('\n');
+                    usedLines += 1;
+                    usedChars += 1;
+                }
             }
         }
 
-        if (builder.length() > 0) {
-            pages.add(trimTrailingNewline(builder));
-        }
+        if (buf.length() > 0) rawPages.add(trimTrailingNewline(buf));
 
-        int total = pages.size();
+        int total = rawPages.size();
         List<String> withHeaders = new ArrayList<>(total);
         for (int i = 0; i < total; i++) {
             String header = ChatColor.DARK_AQUA + "第 " + (i + 1) + "/" + total + " 页" + (i == 0 ? " · 最新" : "") + ChatColor.RESET + "\n";
-            withHeaders.add(header + pages.get(i));
+            withHeaders.add(header + rawPages.get(i));
         }
         return withHeaders;
     }
@@ -244,21 +286,20 @@ public class ConversationUiService implements Listener {
     private List<String> wrapForBook(String content) {
         List<String> result = new ArrayList<>();
         if (content == null || content.isEmpty()) {
-            result.add("");
             return result;
         }
         String[] baseLines = content.replace('\r', ' ').split("\n");
         for (String base : baseLines) {
-            String line = base.trim();
-            if (line.isEmpty()) {
+            String working = base;
+            if (working.isEmpty()) {
                 result.add("");
                 continue;
             }
-            while (line.length() > 18) {
-                result.add(line.substring(0, 18));
-                line = line.substring(18);
+            while (working.length() > 24) {
+                result.add(working.substring(0, 24));
+                working = working.substring(24);
             }
-            result.add(line);
+            result.add(working);
         }
         return result;
     }
