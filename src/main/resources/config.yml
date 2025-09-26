@@ -28,6 +28,7 @@ providers:
 conversation:
   memory-window: 16
   max-response-tokens: 512
+  display-mode: inventory # inventory 或 book
 prompt:
   system-template: |
     你将扮演{name}，与玩家{user}进行角色扮演对话。

@@ -5,6 +5,8 @@ import me.arceus.mrp.conversation.ConversationChatService;
 import me.arceus.mrp.conversation.ConversationMessage;
 import me.arceus.mrp.conversation.ConversationSession;
 import me.arceus.mrp.conversation.ConversationSessionManager;
+import me.arceus.mrp.config.ConversationDisplayMode;
+import me.arceus.mrp.config.ConversationSettings;
 import me.arceus.mrp.provider.ProviderMessage;
 import me.arceus.mrp.villager.VillagerProfile;
 import me.arceus.mrp.villager.VillagerRegistry;
@@ -25,6 +27,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.BookMeta;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -70,7 +73,7 @@ public class ConversationUiService implements Listener {
         openConversation(player, profile, 0);
     }
 
-    private void openConversation(Player player, VillagerProfile profile, int page) {
+    public void openConversation(Player player, VillagerProfile profile, int page) {
         if (profile == null) {
             player.sendMessage("找不到该村民的资料");
             return;
@@ -78,14 +81,21 @@ public class ConversationUiService implements Listener {
         UUID playerId = player.getUniqueId();
         ConversationSession session = sessionManager.getOrCreate(playerId, profile.getVillagerId());
         List<ConversationMessage> history = session.getMessages();
-        int perPage = HISTORY_SLOTS.length;
-        int totalMessages = history.size();
-        int totalPages = totalMessages == 0 ? 1 : (int) Math.ceil(totalMessages / (double) perPage);
-        int clampedPage = Math.max(0, Math.min(page, totalPages - 1));
+        ConversationDisplayMode mode = getDisplayMode();
+        if (mode == ConversationDisplayMode.BOOK) {
+            openViews.remove(playerId);
+            openBookConversation(player, profile, history, page);
+        } else {
+            int perPage = HISTORY_SLOTS.length;
+            int totalMessages = history.size();
+            int totalPages = totalMessages == 0 ? 1 : (int) Math.ceil(totalMessages / (double) perPage);
+            int clampedPage = Math.max(0, Math.min(page, totalPages - 1));
 
-        Inventory inventory = buildInventory(player, profile, history, clampedPage, totalPages);
-        player.openInventory(inventory);
-        openViews.put(playerId, new ConversationViewContext(profile.getVillagerId(), clampedPage, totalPages));
+            Inventory inventory = buildInventory(player, profile, history, clampedPage, totalPages);
+            player.openInventory(inventory);
+            openViews.put(playerId, new ConversationViewContext(profile.getVillagerId(), clampedPage, totalPages));
+            sendQuickActions(player, profile, null, null);
+        }
     }
 
     private Inventory buildInventory(Player player, VillagerProfile profile, List<ConversationMessage> history, int page, int totalPages) {
@@ -138,6 +148,132 @@ public class ConversationUiService implements Listener {
 
         fillPadding(inventory);
         return inventory;
+    }
+
+    private void openBookConversation(Player player, VillagerProfile profile, List<ConversationMessage> history, int page) {
+        String villagerName = profile.getName() != null ? profile.getName() : "村民";
+        List<String> pages = buildBookPages(history, player.getName(), villagerName);
+        if (pages.isEmpty()) {
+            pages = List.of("暂无历史记录。\n\n请在聊天栏直接输入内容开始对话。");
+        }
+
+        int totalPages = pages.size();
+        int clampedPage = Math.max(0, Math.min(page, totalPages - 1));
+
+        ItemStack book = new ItemStack(Material.WRITTEN_BOOK);
+        BookMeta meta = (BookMeta) book.getItemMeta();
+        if (meta != null) {
+            meta.setTitle("与 " + villagerName + " 对话");
+            meta.setAuthor(villagerName);
+            meta.setPages(pages);
+            book.setItemMeta(meta);
+        }
+
+        openBookAtPage(player, book, clampedPage);
+
+        chatCaptureTargets.put(player.getUniqueId(), profile.getVillagerId());
+        player.sendMessage(ChatColor.YELLOW + "请直接在聊天栏输入要对 " + villagerName + " 说的话（输入 cancel 或 取消 退出）。");
+        sendQuickActions(player, profile, clampedPage, totalPages);
+    }
+
+    private void openBookAtPage(Player player, ItemStack originalBook, int page) {
+        if (!(originalBook.getItemMeta() instanceof BookMeta meta)) {
+            player.openBook(originalBook);
+            return;
+        }
+        List<String> pages = new ArrayList<>(meta.getPages());
+        if (pages.isEmpty()) {
+            player.openBook(originalBook);
+            return;
+        }
+        int target = Math.max(0, Math.min(page, pages.size() - 1));
+        if (target > 0) {
+            Collections.rotate(pages, -target);
+        }
+        BookMeta viewMeta = (BookMeta) meta.clone();
+        viewMeta.setPages(pages);
+        ItemStack view = new ItemStack(Material.WRITTEN_BOOK);
+        view.setItemMeta(viewMeta);
+        player.openBook(view);
+    }
+
+    private List<String> buildBookPages(List<ConversationMessage> history, String playerName, String villagerName) {
+        final int maxLines = 12;
+        final int maxChars = 240;
+
+        List<String> pages = new ArrayList<>();
+        StringBuilder builder = new StringBuilder();
+        int lineCount = 0;
+
+        for (int idx = history.size() - 1; idx >= 0; idx--) {
+            ConversationMessage message = history.get(idx);
+            boolean fromPlayer = message.getRole() == ProviderMessage.Role.USER;
+            String speaker = fromPlayer ? playerName : villagerName;
+            String content = message.getContent() != null ? message.getContent() : "";
+
+            List<String> entryLines = new ArrayList<>();
+            entryLines.add(ChatColor.GOLD + speaker + ChatColor.RESET + ":");
+            entryLines.addAll(wrapForBook(content));
+            entryLines.add("");
+
+            for (String line : entryLines) {
+                if (lineCount >= maxLines || builder.length() + line.length() > maxChars) {
+                    pages.add(trimTrailingNewline(builder));
+                    builder = new StringBuilder();
+                    lineCount = 0;
+                }
+                builder.append(line);
+                builder.append('\n');
+                lineCount++;
+            }
+        }
+
+        if (builder.length() > 0) {
+            pages.add(trimTrailingNewline(builder));
+        }
+
+        int total = pages.size();
+        List<String> withHeaders = new ArrayList<>(total);
+        for (int i = 0; i < total; i++) {
+            String header = ChatColor.DARK_AQUA + "第 " + (i + 1) + "/" + total + " 页" + (i == 0 ? " · 最新" : "") + ChatColor.RESET + "\n";
+            withHeaders.add(header + pages.get(i));
+        }
+        return withHeaders;
+    }
+
+    private List<String> wrapForBook(String content) {
+        List<String> result = new ArrayList<>();
+        if (content == null || content.isEmpty()) {
+            result.add("");
+            return result;
+        }
+        String[] baseLines = content.replace('\r', ' ').split("\n");
+        for (String base : baseLines) {
+            String line = base.trim();
+            if (line.isEmpty()) {
+                result.add("");
+                continue;
+            }
+            while (line.length() > 18) {
+                result.add(line.substring(0, 18));
+                line = line.substring(18);
+            }
+            result.add(line);
+        }
+        return result;
+    }
+
+    private String trimTrailingNewline(StringBuilder builder) {
+        if (builder.length() == 0) {
+            return "";
+        }
+        int len = builder.length();
+        if (builder.charAt(len - 1) == '\n') {
+            builder.deleteCharAt(len - 1);
+        }
+        String content = builder.toString();
+        builder.setLength(0);
+        return content;
     }
 
     private ItemStack createMessageItem(ConversationMessage message, boolean fromPlayer, String playerName, String villagerName) {
@@ -208,6 +344,9 @@ public class ConversationUiService implements Listener {
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        if (getDisplayMode() != ConversationDisplayMode.INVENTORY) {
             return;
         }
         int rawSlot = event.getRawSlot();
@@ -301,6 +440,9 @@ public class ConversationUiService implements Listener {
         if (!(event.getPlayer() instanceof Player player)) {
             return;
         }
+        if (getDisplayMode() != ConversationDisplayMode.INVENTORY) {
+            return;
+        }
         openViews.remove(player.getUniqueId());
     }
 
@@ -357,7 +499,7 @@ public class ConversationUiService implements Listener {
                 chatCaptureTargets.remove(player.getUniqueId());
                 return;
             }
-            if (throwable == null) {
+           if (throwable == null) {
                 VillagerProfile refreshed = villagerRegistry.getProfile(villagerId);
                 if (refreshed == null) {
                     refreshed = profile;
@@ -390,6 +532,77 @@ public class ConversationUiService implements Listener {
         message.addExtra(button);
         message.addExtra(suffix);
         player.spigot().sendMessage(message);
+
+        Integer page = null;
+        Integer totalPages = null;
+        if (getDisplayMode() == ConversationDisplayMode.BOOK) {
+            ConversationSession session = sessionManager.getOrCreate(player.getUniqueId(), profile.getVillagerId());
+            List<String> pages = buildBookPages(session.getMessages(), player.getName(), name);
+            totalPages = Math.max(pages.size(), 1);
+            page = 0;
+        }
+        sendQuickActions(player, profile, page, totalPages);
+    }
+
+    private ConversationDisplayMode getDisplayMode() {
+        ConversationSettings settings = plugin.getConfigService().getConversationSettings();
+        return settings != null ? settings.getDisplayMode() : ConversationDisplayMode.INVENTORY;
+    }
+
+    private void sendQuickActions(Player player, VillagerProfile profile, Integer page, Integer totalPages) {
+        ConversationDisplayMode mode = getDisplayMode();
+        TextComponent line = new TextComponent();
+        TextComponent prefix = new TextComponent(mode == ConversationDisplayMode.BOOK
+            ? "快捷操作（书本可直接翻页）："
+            : "快捷操作：");
+        prefix.setColor(ChatColor.GRAY);
+        line.addExtra(prefix);
+
+        TextComponent historyBtn = new TextComponent("[查看历史]");
+        historyBtn.setColor(ChatColor.GOLD);
+        String historyCommand = "/mrp history";
+        if (page != null) {
+            historyCommand += " " + (page + 1);
+        }
+        historyBtn.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, historyCommand));
+        historyBtn.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+            new ComponentBuilder(mode == ConversationDisplayMode.BOOK ? "刷新书本页面" : "打开会话面板")
+                .color(ChatColor.YELLOW).create()));
+        line.addExtra(historyBtn);
+        line.addExtra(space());
+
+        TextComponent endBtn = new TextComponent("[结束对话]");
+        endBtn.setColor(ChatColor.RED);
+        endBtn.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/mrp end"));
+        endBtn.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+            new ComponentBuilder("结束当前对话").color(ChatColor.YELLOW).create()));
+        line.addExtra(endBtn);
+        line.addExtra(space());
+
+        String clearTarget = profile.getCharacterId() > 0
+            ? String.valueOf(profile.getCharacterId())
+            : profile.getVillagerId().toString();
+
+        TextComponent resetBtn = new TextComponent("[重置对话]");
+        resetBtn.setColor(ChatColor.GOLD);
+        resetBtn.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND,
+            "/mrp character clear " + clearTarget));
+        resetBtn.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+            new ComponentBuilder("清空与你的历史记录").color(ChatColor.YELLOW).create()));
+        line.addExtra(resetBtn);
+
+        if (mode == ConversationDisplayMode.BOOK && totalPages != null) {
+            line.addExtra(space());
+            TextComponent hint = new TextComponent("(页数 " + (page != null ? page + 1 : 1) + "/" + totalPages + ")");
+            hint.setColor(ChatColor.GRAY);
+            line.addExtra(hint);
+        }
+
+        player.spigot().sendMessage(line);
+    }
+
+    private TextComponent space() {
+        return new TextComponent(" ");
     }
 
     private static class ConversationViewContext {
@@ -415,4 +628,5 @@ public class ConversationUiService implements Listener {
             return totalPages;
         }
     }
+
 }

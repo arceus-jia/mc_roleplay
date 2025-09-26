@@ -45,7 +45,7 @@ public class MrpCommandExecutor implements CommandExecutor {
             case "say":
                 return handleSay(sender, subArgs);
             case "history":
-                return handleHistory(sender);
+                return handleHistory(sender, subArgs);
             case "reload":
                 return handleReload(sender);
             case "list":
@@ -144,7 +144,7 @@ public class MrpCommandExecutor implements CommandExecutor {
         return true;
     }
 
-    private boolean handleHistory(CommandSender sender) {
+    private boolean handleHistory(CommandSender sender, String[] args) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage("该命令仅限玩家使用");
             return true;
@@ -168,7 +168,19 @@ public class MrpCommandExecutor implements CommandExecutor {
             return true;
         }
 
-        plugin.getConversationUiService().openConversation(player, profile);
+        int page = 0;
+        if (args.length > 0) {
+            try {
+                int parsed = Integer.parseInt(args[0]);
+                if (parsed > 1) {
+                    page = parsed - 1;
+                }
+            } catch (NumberFormatException ignored) {
+                sender.sendMessage("页码应为数字。");
+            }
+        }
+
+        plugin.getConversationUiService().openConversation(player, profile, page);
         return true;
     }
 
@@ -387,7 +399,7 @@ public class MrpCommandExecutor implements CommandExecutor {
         sender.sendMessage("MRP 可用命令：");
         sender.sendMessage("/" + label + " create <名称> <描述...> - 创建村民 (管理员)");
         sender.sendMessage("/" + label + " say <内容> - 向最近交互的村民发送消息");
-        sender.sendMessage("/" + label + " history - 打开当前村民的对话面板");
+        sender.sendMessage("/" + label + " history [页码] - 打开当前村民的对话面板");
         sender.sendMessage("/" + label + " list [关键字] - 查看已注册村民列表");
         sender.sendMessage("/" + label + " end - 结束当前村民对话");
         sender.sendMessage("/" + label + " reload - 重载全局配置 (管理员)");

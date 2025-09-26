@@ -76,11 +76,18 @@ public class ConfigService {
         ConfigurationSection section = config.getConfigurationSection("conversation");
         int memoryWindow = 8;
         int maxResponseTokens = 512;
+        ConversationDisplayMode displayMode = ConversationDisplayMode.INVENTORY;
         if (section != null) {
             memoryWindow = section.getInt("memory-window", memoryWindow);
             maxResponseTokens = section.getInt("max-response-tokens", maxResponseTokens);
+            String mode = section.getString("display-mode", "inventory").toLowerCase();
+            if (mode.equals("book")) {
+                displayMode = ConversationDisplayMode.BOOK;
+            } else {
+                displayMode = ConversationDisplayMode.INVENTORY;
+            }
         }
-        return new ConversationSettings(memoryWindow, maxResponseTokens);
+        return new ConversationSettings(memoryWindow, maxResponseTokens, displayMode);
     }
 
     private PromptSettings loadPrompt(FileConfiguration config) {
