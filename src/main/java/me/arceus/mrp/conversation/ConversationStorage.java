@@ -2,6 +2,10 @@ package me.arceus.mrp.conversation;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import me.arceus.mrp.MrpPlugin;
 import me.arceus.mrp.provider.ProviderMessage;
 import me.arceus.mrp.villager.VillagerProfile;
@@ -14,8 +18,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Logger;
 
@@ -31,48 +38,44 @@ public class ConversationStorage {
         this.baseDir = plugin.getDataFolder().toPath().resolve("conversations");
     }
 
-    public List<ConversationMessage> loadHistory(UUID playerId, UUID villagerId) {
+    public ConversationSnapshot loadSnapshot(UUID playerId, UUID villagerId) {
         Path file = conversationFile(playerId, villagerId);
         Path legacyFile = baseDir.resolve(villagerId.toString()).resolve(playerId.toString() + ".json");
         if (!Files.exists(file) && Files.exists(legacyFile)) {
             file = legacyFile;
         }
         if (!Files.exists(file)) {
-            return Collections.emptyList();
+            return ConversationSnapshot.empty();
         }
         try (Reader reader = Files.newBufferedReader(file)) {
-            MessageRecord[] records = GSON.fromJson(reader, MessageRecord[].class);
-            if (records == null || records.length == 0) {
-                return Collections.emptyList();
+            JsonElement root = JsonParser.parseReader(reader);
+            if (root == null || root.isJsonNull()) {
+                return ConversationSnapshot.empty();
             }
-            List<ConversationMessage> messages = new ArrayList<>(records.length);
-            for (MessageRecord record : records) {
-                ProviderMessage.Role role;
-                try {
-                    role = ProviderMessage.Role.valueOf(record.role);
-                } catch (IllegalArgumentException | NullPointerException ex) {
-                    role = ProviderMessage.Role.ASSISTANT;
-                }
-                Instant timestamp;
-                try {
-                    timestamp = Instant.parse(record.timestamp);
-                } catch (Exception ex) {
-                    timestamp = Instant.now();
-                }
-                messages.add(new ConversationMessage(role, record.content, timestamp));
+            if (root.isJsonArray()) {
+                MessageRecord[] records = GSON.fromJson(root, MessageRecord[].class);
+                return new ConversationSnapshot(toMessages(records), Collections.emptyMap());
             }
-            return messages;
+            if (root.isJsonObject()) {
+                StoredConversation stored = GSON.fromJson(root, StoredConversation.class);
+                List<ConversationMessage> messages = toMessages(stored.messages);
+                Map<String, String> variables = stored.promptVariables != null
+                    ? new HashMap<>(stored.promptVariables)
+                    : Collections.emptyMap();
+                return new ConversationSnapshot(messages, variables);
+            }
+            return ConversationSnapshot.empty();
         } catch (IOException e) {
             plugin.getLogger().warning("读取对话历史失败: " + e.getMessage());
-            return Collections.emptyList();
+            return ConversationSnapshot.empty();
         }
     }
 
     public void saveHistory(ConversationSession session) {
-        saveHistory(session.getPlayerId(), session.getVillagerId(), session.getMessages());
+        saveSnapshot(session.getPlayerId(), session.getVillagerId(), session.getMessages(), session.getPromptVariables());
     }
 
-    public void saveHistory(UUID playerId, UUID villagerId, List<ConversationMessage> messages) {
+    private void saveSnapshot(UUID playerId, UUID villagerId, List<ConversationMessage> messages, Map<String, String> promptVariables) {
         Path file = conversationFile(playerId, villagerId);
         Path legacyFile = baseDir.resolve(villagerId.toString()).resolve(playerId.toString() + ".json");
         try {
@@ -83,7 +86,12 @@ public class ConversationStorage {
                     ConversationMessage message = messages.get(i);
                     records[i] = MessageRecord.from(message);
                 }
-                GSON.toJson(records, writer);
+                StoredConversation stored = new StoredConversation();
+                stored.messages = new ArrayList<>(Arrays.asList(records));
+                if (promptVariables != null && !promptVariables.isEmpty()) {
+                    stored.promptVariables = new HashMap<>(promptVariables);
+                }
+                GSON.toJson(stored, writer);
             }
             if (!file.equals(legacyFile) && Files.exists(legacyFile)) {
                 Files.deleteIfExists(legacyFile);
@@ -99,6 +107,70 @@ public class ConversationStorage {
         } catch (IOException e) {
             plugin.getLogger().warning("写入对话历史失败: " + e.getMessage());
         }
+    }
+
+    public static class ConversationSnapshot {
+        private final List<ConversationMessage> messages;
+        private final Map<String, String> promptVariables;
+
+        ConversationSnapshot(List<ConversationMessage> messages, Map<String, String> promptVariables) {
+            this.messages = messages != null
+                ? Collections.unmodifiableList(new ArrayList<>(messages))
+                : Collections.emptyList();
+            this.promptVariables = promptVariables != null
+                ? Collections.unmodifiableMap(new HashMap<>(promptVariables))
+                : Collections.emptyMap();
+        }
+
+        public static ConversationSnapshot empty() {
+            return new ConversationSnapshot(Collections.emptyList(), Collections.emptyMap());
+        }
+
+        public List<ConversationMessage> messages() {
+            return messages;
+        }
+
+        public Map<String, String> promptVariables() {
+            return promptVariables;
+        }
+    }
+
+    private static class StoredConversation {
+        List<MessageRecord> messages;
+        Map<String, String> promptVariables;
+    }
+
+    private List<ConversationMessage> toMessages(MessageRecord[] records) {
+        if (records == null || records.length == 0) {
+            return Collections.emptyList();
+        }
+        return toMessages(Arrays.asList(records));
+    }
+
+    private List<ConversationMessage> toMessages(List<MessageRecord> records) {
+        if (records == null || records.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<ConversationMessage> messages = new ArrayList<>(records.size());
+        for (MessageRecord record : records) {
+            if (record == null) {
+                continue;
+            }
+            ProviderMessage.Role role;
+            try {
+                role = ProviderMessage.Role.valueOf(record.role);
+            } catch (IllegalArgumentException | NullPointerException ex) {
+                role = ProviderMessage.Role.ASSISTANT;
+            }
+            Instant timestamp;
+            try {
+                timestamp = Instant.parse(record.timestamp);
+            } catch (Exception ex) {
+                timestamp = Instant.now();
+            }
+            messages.add(new ConversationMessage(role, record.content, timestamp));
+        }
+        return messages;
     }
 
     public boolean clearHistory(UUID playerId, UUID villagerId) {

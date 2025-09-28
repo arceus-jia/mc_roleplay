@@ -27,10 +27,11 @@ public class ConversationSessionManager {
         ConversationSession session = sessions.get(key);
         if (session == null) {
             session = new ConversationSession(playerId, villagerId);
-            List<ConversationMessage> history = storage.loadHistory(playerId, villagerId);
-            if (!history.isEmpty()) {
-                session.initializeHistory(history);
+            ConversationStorage.ConversationSnapshot snapshot = storage.loadSnapshot(playerId, villagerId);
+            if (!snapshot.messages().isEmpty()) {
+                session.initializeHistory(snapshot.messages());
             }
+            session.initializePromptVariables(snapshot.promptVariables());
             sessions.put(key, session);
         }
         activeVillager.put(playerId, villagerId);

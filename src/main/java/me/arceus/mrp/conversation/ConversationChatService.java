@@ -10,16 +10,19 @@ import me.arceus.mrp.provider.ProviderRequest;
 import me.arceus.mrp.provider.ProviderResponse;
 import me.arceus.mrp.prompt.PromptService;
 import me.arceus.mrp.villager.VillagerProfile;
+import me.arceus.mrp.villager.VillagerPromptOverride;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Handles end-to-end chat flow between a player and a villager profile,
@@ -69,6 +72,7 @@ public class ConversationChatService {
         }
 
         ConversationSession session = sessionManager.getOrCreate(playerId, profile.getVillagerId());
+        preparePromptVariables(profile, session);
         sessionManager.appendMessage(session, ProviderMessage.Role.USER, playerInput);
         plugin.getConversationLogger().log(
             profile.getVillagerId(),
@@ -79,7 +83,7 @@ public class ConversationChatService {
             playerInput
         );
 
-        String systemPrompt = promptService.buildSystemPrompt(profile, player.getName());
+        String systemPrompt = promptService.buildSystemPrompt(profile, session, player.getName());
 
         List<ProviderMessage> messages = new ArrayList<>();
         messages.add(new ProviderMessage(ProviderMessage.Role.SYSTEM, systemPrompt));
@@ -142,5 +146,58 @@ public class ConversationChatService {
         }));
 
         return result;
+    }
+
+    private void preparePromptVariables(VillagerProfile profile, ConversationSession session) {
+        if (profile == null || session == null) {
+            return;
+        }
+        VillagerPromptOverride override = profile.getPromptOverride();
+        if (override == null) {
+            return;
+        }
+
+        if (override.hasVariables()) {
+            for (Map.Entry<String, String> entry : override.getVariables().entrySet()) {
+                String key = entry.getKey();
+                String value = entry.getValue();
+                if (key == null || value == null || value.isBlank()) {
+                    continue;
+                }
+                if (!session.hasPromptVariable(key)) {
+                    session.setPromptVariable(key, value);
+                }
+            }
+        }
+
+        if (override.hasVariableCandidates()) {
+            for (Map.Entry<String, List<String>> entry : override.getVariableCandidates().entrySet()) {
+                String key = entry.getKey();
+                if (key == null || session.hasPromptVariable(key)) {
+                    continue;
+                }
+                String selected = pickCandidate(entry.getValue());
+                if (selected != null) {
+                    session.setPromptVariable(key, selected);
+                }
+            }
+        }
+    }
+
+    private String pickCandidate(List<String> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        List<String> pool = new ArrayList<>(candidates.size());
+        for (String candidate : candidates) {
+            if (candidate != null && !candidate.isBlank()) {
+                pool.add(candidate);
+            }
+        }
+        if (pool.isEmpty()) {
+            return null;
+        }
+        int index = ThreadLocalRandom.current().nextInt(pool.size());
+        return pool.get(index);
     }
 }

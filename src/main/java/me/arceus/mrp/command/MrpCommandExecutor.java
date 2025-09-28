@@ -91,6 +91,7 @@ public class MrpCommandExecutor implements CommandExecutor {
             name,
             description,
             "",
+            null,
             null
         );
 

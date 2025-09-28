@@ -11,6 +11,7 @@ public class VillagerProfile {
     private String persona;
     private String modelOverride;
     private boolean freezeAi;
+    private VillagerPromptOverride promptOverride;
 
     // Gson 需要无参构造函数
     public VillagerProfile() {
@@ -21,13 +22,15 @@ public class VillagerProfile {
                            String name,
                            String description,
                            String persona,
-                           String modelOverride) {
+                           String modelOverride,
+                           VillagerPromptOverride promptOverride) {
         this.villagerId = villagerId;
         this.characterId = characterId;
         this.name = name;
         this.description = description;
         this.persona = persona;
         this.modelOverride = modelOverride;
+        this.promptOverride = promptOverride;
     }
 
     public UUID getVillagerId() {
@@ -58,6 +61,10 @@ public class VillagerProfile {
         return freezeAi;
     }
 
+    public VillagerPromptOverride getPromptOverride() {
+        return promptOverride;
+    }
+
     public void setVillagerId(UUID villagerId) {
         this.villagerId = villagerId;
     }
@@ -84,5 +91,9 @@ public class VillagerProfile {
 
     public void setFreezeAi(boolean freezeAi) {
         this.freezeAi = freezeAi;
+    }
+
+    public void setPromptOverride(VillagerPromptOverride promptOverride) {
+        this.promptOverride = promptOverride;
     }
 }

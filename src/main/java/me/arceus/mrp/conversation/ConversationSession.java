@@ -4,7 +4,9 @@ import me.arceus.mrp.provider.ProviderMessage;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class ConversationSession {
@@ -12,6 +14,7 @@ public class ConversationSession {
     private final UUID playerId;
     private final UUID villagerId;
     private final List<ConversationMessage> messages = new ArrayList<>();
+    private final Map<String, String> promptVariables = new HashMap<>();
 
     public ConversationSession(UUID playerId, UUID villagerId) {
         this.playerId = playerId;
@@ -21,6 +24,13 @@ public class ConversationSession {
     void initializeHistory(List<ConversationMessage> history) {
         messages.clear();
         messages.addAll(history);
+    }
+
+    void initializePromptVariables(Map<String, String> variables) {
+        promptVariables.clear();
+        if (variables != null) {
+            promptVariables.putAll(variables);
+        }
     }
 
     public UUID getPlayerId() {
@@ -41,5 +51,28 @@ public class ConversationSession {
 
     void clearMessages() {
         messages.clear();
+    }
+
+    public Map<String, String> getPromptVariables() {
+        return Collections.unmodifiableMap(promptVariables);
+    }
+
+    public void setPromptVariable(String key, String value) {
+        if (key == null) {
+            return;
+        }
+        if (value == null) {
+            promptVariables.remove(key);
+        } else {
+            promptVariables.put(key, value);
+        }
+    }
+
+    public String getPromptVariable(String key) {
+        return promptVariables.get(key);
+    }
+
+    public boolean hasPromptVariable(String key) {
+        return promptVariables.containsKey(key);
     }
 }
