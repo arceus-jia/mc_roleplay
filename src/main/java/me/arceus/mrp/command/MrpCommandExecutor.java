@@ -3,6 +3,7 @@ package me.arceus.mrp.command;
 import me.arceus.mrp.MrpPlugin;
 import me.arceus.mrp.conversation.ConversationChatService;
 import me.arceus.mrp.conversation.ConversationSessionManager;
+import me.arceus.mrp.config.ConversationDisplayMode;
 import me.arceus.mrp.villager.VillagerProfile;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -46,6 +47,8 @@ public class MrpCommandExecutor implements CommandExecutor {
                 return handleSay(sender, subArgs);
             case "history":
                 return handleHistory(sender, subArgs);
+            case "view":
+                return handleView(sender, subArgs);
             case "reload":
                 return handleReload(sender);
             case "list":
@@ -168,12 +171,15 @@ public class MrpCommandExecutor implements CommandExecutor {
             return true;
         }
 
-        int page = 0;
+        int page = -1;
         if (args.length > 0) {
             try {
                 int parsed = Integer.parseInt(args[0]);
-                if (parsed > 1) {
+                if (parsed >= 1) {
                     page = parsed - 1;
+                } else {
+                    sender.sendMessage("页码必须大于等于 1。");
+                    return true;
                 }
             } catch (NumberFormatException ignored) {
                 sender.sendMessage("页码应为数字。");
@@ -182,6 +188,85 @@ public class MrpCommandExecutor implements CommandExecutor {
 
         plugin.getConversationUiService().openConversation(player, profile, page);
         return true;
+    }
+
+    private boolean handleView(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("该命令仅限玩家使用");
+            return true;
+        }
+
+        var uiService = plugin.getConversationUiService();
+        if (uiService == null) {
+            sender.sendMessage("界面服务尚未初始化");
+            return true;
+        }
+
+        ConversationDisplayMode target = null;
+        boolean toggle = false;
+
+        if (args.length == 0) {
+            toggle = true;
+        } else {
+            String modeArg = args[0].toLowerCase(Locale.ROOT);
+            switch (modeArg) {
+                case "book":
+                case "书本":
+                    target = ConversationDisplayMode.BOOK;
+                    break;
+                case "inventory":
+                case "panel":
+                case "面板":
+                case "gui":
+                    target = ConversationDisplayMode.INVENTORY;
+                    break;
+                case "toggle":
+                case "switch":
+                    toggle = true;
+                    break;
+                case "default":
+                case "reset":
+                case "config":
+                    ConversationDisplayMode result = uiService.setPlayerDisplayMode(player, null);
+                    sender.sendMessage("已恢复到默认展示模式：" + renderDisplayMode(result));
+                    reopenIfActive(player, result);
+                    return true;
+                default:
+                    sender.sendMessage("用法: /mrp view [book|inventory|toggle|default]");
+                    return true;
+            }
+        }
+
+        ConversationDisplayMode result = toggle
+            ? uiService.togglePlayerDisplayMode(player)
+            : uiService.setPlayerDisplayMode(player, target);
+
+        sender.sendMessage("展示模式已切换为：" + renderDisplayMode(result));
+        reopenIfActive(player, result);
+        return true;
+    }
+
+    private void reopenIfActive(Player player, ConversationDisplayMode mode) {
+        ConversationSessionManager sessionManager = plugin.getSessionManager();
+        if (sessionManager == null) {
+            return;
+        }
+        UUID villagerId = sessionManager.getActiveVillager(player.getUniqueId());
+        if (villagerId == null) {
+            return;
+        }
+        VillagerProfile profile = plugin.getVillagerRegistry().getProfile(villagerId);
+        if (profile == null) {
+            return;
+        }
+        plugin.getConversationUiService().openConversation(player, profile, -1);
+    }
+
+    private String renderDisplayMode(ConversationDisplayMode mode) {
+        return switch (mode) {
+            case BOOK -> "书本模式";
+            case INVENTORY -> "物品栏模式";
+        };
     }
 
     private boolean handleReload(CommandSender sender) {

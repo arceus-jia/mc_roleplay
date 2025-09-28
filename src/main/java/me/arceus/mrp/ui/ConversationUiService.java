@@ -38,7 +38,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Presents a lightweight inventory-based conversation view and bridges chat capture
+ * Presents a lightweight inventory-based conversation view and bridges chat
+ * capture
  * back into the shared conversation pipeline.
  */
 public class ConversationUiService implements Listener {
@@ -50,8 +51,8 @@ public class ConversationUiService implements Listener {
     private static final int END_SLOT = 24;
     private static final int NEXT_SLOT = 26;
     private static final int[] HISTORY_SLOTS = {
-        0, 1, 2, 3, 4, 5, 6, 7, 8,
-        9, 10, 11, 12, 13, 14, 15, 16, 17
+            0, 1, 2, 3, 4, 5, 6, 7, 8,
+            9, 10, 11, 12, 13, 14, 15, 16, 17
     };
 
     private final MrpPlugin plugin;
@@ -61,6 +62,7 @@ public class ConversationUiService implements Listener {
 
     private final Map<UUID, ConversationViewContext> openViews = new ConcurrentHashMap<>();
     private final Map<UUID, UUID> chatCaptureTargets = new ConcurrentHashMap<>();
+    private final Map<UUID, ConversationDisplayMode> playerDisplayModes = new ConcurrentHashMap<>();
 
     public ConversationUiService(MrpPlugin plugin, ConversationChatService chatService) {
         this.plugin = plugin;
@@ -70,7 +72,7 @@ public class ConversationUiService implements Listener {
     }
 
     public void openConversation(Player player, VillagerProfile profile) {
-        openConversation(player, profile, 0);
+        openConversation(player, profile, -1);
     }
 
     public void openConversation(Player player, VillagerProfile profile, int page) {
@@ -81,7 +83,7 @@ public class ConversationUiService implements Listener {
         UUID playerId = player.getUniqueId();
         ConversationSession session = sessionManager.getOrCreate(playerId, profile.getVillagerId());
         List<ConversationMessage> history = session.getMessages();
-        ConversationDisplayMode mode = getDisplayMode();
+        ConversationDisplayMode mode = getEffectiveDisplayMode(player);
         if (mode == ConversationDisplayMode.BOOK) {
             openViews.remove(playerId);
             openBookConversation(player, profile, history, page);
@@ -89,7 +91,8 @@ public class ConversationUiService implements Listener {
             int perPage = HISTORY_SLOTS.length;
             int totalMessages = history.size();
             int totalPages = totalMessages == 0 ? 1 : (int) Math.ceil(totalMessages / (double) perPage);
-            int clampedPage = Math.max(0, Math.min(page, totalPages - 1));
+            int targetPage = page < 0 ? 0 : page;
+            int clampedPage = Math.max(0, Math.min(targetPage, totalPages - 1));
 
             Inventory inventory = buildInventory(player, profile, history, clampedPage, totalPages);
             player.openInventory(inventory);
@@ -98,7 +101,8 @@ public class ConversationUiService implements Listener {
         }
     }
 
-    private Inventory buildInventory(Player player, VillagerProfile profile, List<ConversationMessage> history, int page, int totalPages) {
+    private Inventory buildInventory(Player player, VillagerProfile profile, List<ConversationMessage> history,
+            int page, int totalPages) {
         String villagerName = profile.getName() != null ? profile.getName() : "村民";
         String title = "与 " + villagerName + " 对话";
         if (title.length() > 32) {
@@ -126,198 +130,287 @@ public class ConversationUiService implements Listener {
         inventory.setItem(PREV_SLOT, createPageButton(page > 0, "上一页", page, totalPages));
         inventory.setItem(NEXT_SLOT, createPageButton(page < totalPages - 1, "下一页", page, totalPages));
         inventory.setItem(TALK_SLOT, createControlItem(
-            Material.WRITABLE_BOOK,
-            "开始对话",
-            List.of(
-                "关闭界面后在聊天栏输入",
-                "输入 cancel 或 取消 退出"
-            )
-        ));
+                Material.WRITABLE_BOOK,
+                "开始对话",
+                List.of(
+                        "关闭界面后在聊天栏输入",
+                        "输入 cancel 或 取消 退出")));
 
         inventory.setItem(RESTART_SLOT, createControlItem(
-            Material.REDSTONE_TORCH,
-            "重置对话",
-            List.of("清空历史记录并重新开始")
-        ));
+                Material.REDSTONE_TORCH,
+                "重置对话",
+                List.of("清空历史记录并重新开始")));
 
         inventory.setItem(END_SLOT, createControlItem(
-            Material.BARRIER,
-            "结束对话",
-            List.of("结束会话并关闭界面")
-        ));
+                Material.BARRIER,
+                "结束对话",
+                List.of("结束会话并关闭界面")));
 
         fillPadding(inventory);
         return inventory;
     }
 
-    private void openBookConversation(Player player, VillagerProfile profile, List<ConversationMessage> history, int page) {
+    private void openBookConversation(Player player, VillagerProfile profile, List<ConversationMessage> history,
+            int page) {
         String villagerName = profile.getName() != null ? profile.getName() : "村民";
-        List<String> pages = buildBookPages(history, player.getName(), villagerName);
-        if (pages.isEmpty()) {
-            pages = List.of("暂无历史记录。\n\n请在聊天栏直接输入内容开始对话。");
+        List<BookPageContent> pageData = buildBookPages(history, player.getName(), villagerName);
+        if (pageData.isEmpty()) {
+            pageData = List.of(new BookPageContent(0, "暂无历史记录。\n\n请在聊天栏直接输入内容开始对话。"));
         }
 
-        int totalPages = pages.size();
-        int clampedPage = Math.max(0, Math.min(page, totalPages - 1));
+        int totalPages = pageData.size();
+        int targetChrono = page < 0 ? totalPages - 1 : Math.max(0, Math.min(page, totalPages - 1));
+        boolean descending = page < 0 || targetChrono == totalPages - 1;
+        List<String> renderedPages = renderBookPages(pageData, targetChrono, descending);
 
         ItemStack book = new ItemStack(Material.WRITTEN_BOOK);
         BookMeta meta = (BookMeta) book.getItemMeta();
         if (meta != null) {
             meta.setTitle("与 " + villagerName + " 对话");
             meta.setAuthor(villagerName);
-            meta.setPages(pages);
+            meta.setPages(renderedPages);
             book.setItemMeta(meta);
         }
 
-        openBookAtPage(player, book, clampedPage);
+        player.openBook(book);
 
         chatCaptureTargets.put(player.getUniqueId(), profile.getVillagerId());
         player.sendMessage(ChatColor.YELLOW + "请直接在聊天栏输入要对 " + villagerName + " 说的话（输入 cancel 或 取消 退出）。");
-        sendQuickActions(player, profile, clampedPage, totalPages);
+        sendQuickActions(player, profile, targetChrono, totalPages);
     }
 
-    private void openBookAtPage(Player player, ItemStack originalBook, int page) {
-        if (!(originalBook.getItemMeta() instanceof BookMeta meta)) {
-            player.openBook(originalBook);
-            return;
-        }
-        List<String> pages = new ArrayList<>(meta.getPages());
-        if (pages.isEmpty()) {
-            player.openBook(originalBook);
-            return;
-        }
-        int target = Math.max(0, Math.min(page, pages.size() - 1));
-        if (target > 0) {
-            Collections.rotate(pages, -target);
-        }
-        BookMeta viewMeta = (BookMeta) meta.clone();
-        viewMeta.setPages(pages);
-        ItemStack view = new ItemStack(Material.WRITTEN_BOOK);
-        view.setItemMeta(viewMeta);
-        player.openBook(view);
-    }
+    private List<BookPageContent> buildBookPages(List<ConversationMessage> history, String playerName, String villagerName) {
+        // 书本实际可见行大约 14 行；我们预留 1 行给“页眉”，内容最多用 13 行
+        final int maxLinesPerPage = 13; // 内容行
+        // 书本原始字符上限 ~255，预留 ~40 字符给“页眉”（含颜色码与换行）
+        final int maxRawCharsPerPage = 255 - 40;
 
-    private List<String> buildBookPages(List<ConversationMessage> history, String playerName, String villagerName) {
-        final int maxLinesPerPage = 13;
-        final int maxCharsPerPage = 220;
+        // （可选）行内折行宽度：从 24 收紧，默认 10 更靠近中文实际宽度
+        final int wrapWidth = 10;
 
-        List<String> rawPages = new ArrayList<>();
-        StringBuilder buf = new StringBuilder();
-        int usedLines = 0;
-        int usedChars = 0;
+        BookPageBuilder builder = new BookPageBuilder(maxLinesPerPage, maxRawCharsPerPage);
 
-        for (int idx = history.size() - 1; idx >= 0; idx--) {
+        for (int idx = 0; idx < history.size(); idx++) {
             ConversationMessage msg = history.get(idx);
             boolean fromPlayer = msg.getRole() == ProviderMessage.Role.USER;
             String speaker = fromPlayer ? playerName : villagerName;
             String headerBase = ChatColor.GOLD + speaker + ChatColor.RESET;
-            List<String> body = wrapForBook(msg.getContent());
-            if (body.isEmpty()) body = List.of("");
 
-            int i = 0;
-            boolean firstSeg = true;
-            while (i < body.size()) {
-                String header = (firstSeg ? headerBase + ":" : headerBase + " (续):");
-                int headerCost = header.length() + 1;
+            List<String> bodyLines = wrapForBook(msg.getContent(), wrapWidth);
+            if (bodyLines.isEmpty())
+                bodyLines = List.of("");
 
-                boolean needNewPage = false;
-                if (usedLines > 0) {
-                    if ((maxLinesPerPage - usedLines) < 2) needNewPage = true;
-                    if (!needNewPage && usedChars + headerCost + 1 > maxCharsPerPage) needNewPage = true;
-                }
-                if (needNewPage) {
-                    rawPages.add(trimTrailingNewline(buf));
-                    buf = new StringBuilder();
-                    usedLines = 0;
-                    usedChars = 0;
-                }
+            int bodyIndex = 0;
+            boolean continuation = false;
+            while (bodyIndex < bodyLines.size()) {
+                String header = headerBase + (continuation ? " (续)" : "") + ":";
 
-                // 标题
-                buf.append(header).append('\n');
-                usedLines += 1;
-                usedChars += headerCost;
+                if (!builder.canFit(header))
+                    builder.startNewPage();
+                builder.addLine(header);
 
-                // 内容
-                while (i < body.size()) {
-                    String line = body.get(i);
-                    int cost = line.length() + 1;
-                    if (usedLines >= maxLinesPerPage || usedChars + cost > maxCharsPerPage) {
-                        rawPages.add(trimTrailingNewline(buf));
-                        buf = new StringBuilder();
-                        usedLines = 0;
-                        usedChars = 0;
-                        firstSeg = false;
+                while (bodyIndex < bodyLines.size()) {
+                    String line = bodyLines.get(bodyIndex);
+                    if (!builder.canFit(line)) {
+                        builder.startNewPage();
+                        continuation = true;
                         break;
                     }
-                    buf.append(line).append('\n');
-                    usedLines += 1;
-                    usedChars += cost;
-                    i++;
+                    builder.addLine(line);
+                    bodyIndex++;
+                    continuation = false;
                 }
-                if (i >= body.size()) firstSeg = false;
             }
 
-            // 消息之间空行
-            if (idx > 0) {
-                if (usedLines >= maxLinesPerPage || usedChars + 1 > maxCharsPerPage) {
-                    rawPages.add(trimTrailingNewline(buf));
-                    buf = new StringBuilder();
-                    usedLines = 0;
-                    usedChars = 0;
-                } else {
-                    buf.append('\n');
-                    usedLines += 1;
-                    usedChars += 1;
-                }
+            // 消息之间空一行
+            if (idx < history.size() - 1 && !builder.isCurrentPageEmpty()) {
+                if (!builder.canFit(""))
+                    builder.startNewPage();
+                if (!builder.isCurrentPageEmpty())
+                    builder.addLine("");
             }
         }
 
-        if (buf.length() > 0) rawPages.add(trimTrailingNewline(buf));
+        List<String> rawPages = builder.build();
 
         int total = rawPages.size();
-        List<String> withHeaders = new ArrayList<>(total);
+        List<BookPageContent> result = new ArrayList<>(total);
         for (int i = 0; i < total; i++) {
-            String header = ChatColor.DARK_AQUA + "第 " + (i + 1) + "/" + total + " 页" + (i == 0 ? " · 最新" : "") + ChatColor.RESET + "\n";
-            withHeaders.add(header + rawPages.get(i));
+            result.add(new BookPageContent(i, rawPages.get(i)));
         }
-        return withHeaders;
+
+        plugin.getLogger().info("[BookMode] entries=" + history.size()
+                + " pages=" + total
+                + " lines=" + builder.getTotalLines()
+                + " charsVisible=" + builder.getTotalVisibleChars()
+                + " charsRaw=" + builder.getTotalRawChars());
+        return result;
     }
 
-    private List<String> wrapForBook(String content) {
-        List<String> result = new ArrayList<>();
-        if (content == null || content.isEmpty()) {
-            return result;
+    private List<String> renderBookPages(List<BookPageContent> pages, int targetChrono, boolean descendingFromTarget) {
+        if (pages.isEmpty()) {
+            return Collections.emptyList();
         }
+        int total = pages.size();
+        int clampedTarget = Math.max(0, Math.min(targetChrono, total - 1));
+
+        List<BookPageContent> ordered = new ArrayList<>(total);
+        if (descendingFromTarget) {
+            for (int i = clampedTarget; i >= 0; i--) {
+                ordered.add(pages.get(i));
+            }
+            for (int i = total - 1; i > clampedTarget; i--) {
+                ordered.add(pages.get(i));
+            }
+        } else {
+            for (int i = clampedTarget; i < total; i++) {
+                ordered.add(pages.get(i));
+            }
+            for (int i = 0; i < clampedTarget; i++) {
+                ordered.add(pages.get(i));
+            }
+        }
+
+        List<String> rendered = new ArrayList<>(total);
+        for (int displayIndex = 0; displayIndex < ordered.size(); displayIndex++) {
+            BookPageContent page = ordered.get(displayIndex);
+            String body = page.body;
+            rendered.add(body == null || body.isEmpty() ? "" : body);
+        }
+        return rendered;
+    }
+
+    private List<String> wrapForBook(String content, int wrapWidth) {
+        List<String> lines = new ArrayList<>();
+        if (content == null || content.isEmpty())
+            return lines;
+
         String[] baseLines = content.replace('\r', ' ').split("\n");
         for (String base : baseLines) {
             String working = base;
             if (working.isEmpty()) {
-                result.add("");
+                lines.add("");
                 continue;
             }
-            while (working.length() > 24) {
-                result.add(working.substring(0, 24));
-                working = working.substring(24);
+            while (visibleLength(working) > wrapWidth) {
+                int split = findSplitIndex(working, wrapWidth);
+                lines.add(working.substring(0, split));
+                working = working.substring(split);
             }
-            result.add(working);
+            lines.add(working);
         }
-        return result;
+        return lines;
     }
 
-    private String trimTrailingNewline(StringBuilder builder) {
-        if (builder.length() == 0) {
-            return "";
+    private static int findSplitIndex(String text, int maxVisible) {
+        int count = 0;
+        int index = 0;
+        while (index < text.length() && count < maxVisible) {
+            char c = text.charAt(index);
+            if (c == ChatColor.COLOR_CHAR && index + 1 < text.length()) {
+                index += 2;
+                continue;
+            }
+            count++;
+            index++;
         }
-        int len = builder.length();
-        if (builder.charAt(len - 1) == '\n') {
-            builder.deleteCharAt(len - 1);
-        }
-        String content = builder.toString();
-        builder.setLength(0);
-        return content;
+        return Math.max(1, index);
     }
 
-    private ItemStack createMessageItem(ConversationMessage message, boolean fromPlayer, String playerName, String villagerName) {
+    private static int visibleLength(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        boolean skip = false;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (skip) {
+                skip = false;
+                continue;
+            }
+            if (c == ChatColor.COLOR_CHAR) {
+                skip = true;
+                continue;
+            }
+            count++;
+        }
+        return count;
+    }
+
+    private static class BookPageBuilder {
+        private final int maxLines; // 内容最大行数（已排除页眉）
+        private final int maxRawChars; // 每页原始字符上限（已预留页眉）
+        private final List<String> pages = new ArrayList<>();
+        private final List<String> currentLines = new ArrayList<>();
+        private int currentRawChars = 0; // 按原始字符统计（含§颜色码与换行）
+        private int totalLines = 0;
+        private int totalVisibleChars = 0;
+        private int totalRawChars = 0;
+
+        BookPageBuilder(int maxLines, int maxRawChars) {
+            this.maxLines = maxLines;
+            this.maxRawChars = maxRawChars;
+        }
+
+        boolean canFit(String line) {
+            int rawLen = (line == null ? 0 : line.length());
+            int newlineCost = currentLines.isEmpty() ? 0 : 1; // '\n'
+            if (currentLines.size() >= maxLines)
+                return false;
+            return currentRawChars + newlineCost + rawLen <= maxRawChars;
+        }
+
+        void addLine(String line) {
+            String safe = (line == null ? "" : line);
+            int rawLen = safe.length();
+            int visLen = visibleLength(safe);
+
+            if (!currentLines.isEmpty()) {
+                currentRawChars += 1; // '\n'
+                totalRawChars += 1;
+            }
+            currentLines.add(safe);
+
+            currentRawChars += rawLen;
+            totalRawChars += rawLen;
+
+            totalVisibleChars += visLen;
+            totalLines += 1;
+        }
+
+        boolean isCurrentPageEmpty() {
+            return currentLines.isEmpty();
+        }
+
+        void startNewPage() {
+            if (currentLines.isEmpty())
+                return;
+            pages.add(String.join("\n", currentLines));
+            currentLines.clear();
+            currentRawChars = 0;
+        }
+
+        List<String> build() {
+            startNewPage();
+            return pages.isEmpty() ? Collections.emptyList() : new ArrayList<>(pages);
+        }
+
+        int getTotalLines() {
+            return totalLines;
+        }
+
+        int getTotalVisibleChars() {
+            return totalVisibleChars;
+        }
+
+        int getTotalRawChars() {
+            return totalRawChars;
+        }
+    }
+
+    private ItemStack createMessageItem(ConversationMessage message, boolean fromPlayer, String playerName,
+            String villagerName) {
         Material material = fromPlayer ? Material.PAPER : Material.EMERALD;
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
@@ -337,8 +430,8 @@ public class ConversationUiService implements Listener {
         Material material = enabled ? Material.ARROW : Material.GRAY_DYE;
         String pageInfo = "当前页: " + (page + 1) + "/" + Math.max(totalPages, 1);
         List<String> lore = enabled
-            ? List.of("点击查看", pageInfo)
-            : List.of("没有更多记录", pageInfo);
+                ? List.of("点击查看", pageInfo)
+                : List.of("没有更多记录", pageInfo);
         return createControlItem(material, name, lore);
     }
 
@@ -356,7 +449,8 @@ public class ConversationUiService implements Listener {
     private void fillPadding(Inventory inventory) {
         ItemStack filler = createControlItem(Material.GRAY_STAINED_GLASS_PANE, " ", Collections.emptyList());
         for (int slot = 18; slot < INVENTORY_SIZE; slot++) {
-            if (slot == PREV_SLOT || slot == RESTART_SLOT || slot == TALK_SLOT || slot == END_SLOT || slot == NEXT_SLOT) {
+            if (slot == PREV_SLOT || slot == RESTART_SLOT || slot == TALK_SLOT || slot == END_SLOT
+                    || slot == NEXT_SLOT) {
                 continue;
             }
             if (inventory.getItem(slot) == null) {
@@ -385,9 +479,6 @@ public class ConversationUiService implements Listener {
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) {
-            return;
-        }
-        if (getDisplayMode() != ConversationDisplayMode.INVENTORY) {
             return;
         }
         int rawSlot = event.getRawSlot();
@@ -481,9 +572,6 @@ public class ConversationUiService implements Listener {
         if (!(event.getPlayer() instanceof Player player)) {
             return;
         }
-        if (getDisplayMode() != ConversationDisplayMode.INVENTORY) {
-            return;
-        }
         openViews.remove(player.getUniqueId());
     }
 
@@ -492,6 +580,7 @@ public class ConversationUiService implements Listener {
         UUID playerId = event.getPlayer().getUniqueId();
         openViews.remove(playerId);
         chatCaptureTargets.remove(playerId);
+        playerDisplayModes.remove(playerId);
     }
 
     @EventHandler
@@ -540,7 +629,7 @@ public class ConversationUiService implements Listener {
                 chatCaptureTargets.remove(player.getUniqueId());
                 return;
             }
-           if (throwable == null) {
+            if (throwable == null) {
                 VillagerProfile refreshed = villagerRegistry.getProfile(villagerId);
                 if (refreshed == null) {
                     refreshed = profile;
@@ -555,46 +644,23 @@ public class ConversationUiService implements Listener {
 
     private void sendHistoryShortcut(Player player, VillagerProfile profile) {
         String name = profile.getName() != null ? profile.getName() : "村民";
-        TextComponent prefix = new TextComponent(name + " 的回复已更新 ");
-        prefix.setColor(ChatColor.GRAY);
-
-        TextComponent button = new TextComponent("[点击查看历史]");
-        button.setColor(ChatColor.GOLD);
-        button.setBold(true);
-        button.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/mrp history"));
-        button.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-            new ComponentBuilder("打开会话面板").color(ChatColor.YELLOW).create()));
-
-        TextComponent suffix = new TextComponent("，或再次右键该村民。");
-        suffix.setColor(ChatColor.GRAY);
-
-        TextComponent message = new TextComponent();
-        message.addExtra(prefix);
-        message.addExtra(button);
-        message.addExtra(suffix);
-        player.spigot().sendMessage(message);
-
         Integer page = null;
         Integer totalPages = null;
-        if (getDisplayMode() == ConversationDisplayMode.BOOK) {
+        ConversationDisplayMode mode = getEffectiveDisplayMode(player);
+        if (mode == ConversationDisplayMode.BOOK) {
             ConversationSession session = sessionManager.getOrCreate(player.getUniqueId(), profile.getVillagerId());
-            List<String> pages = buildBookPages(session.getMessages(), player.getName(), name);
-            totalPages = Math.max(pages.size(), 1);
-            page = 0;
+            List<BookPageContent> pageData = buildBookPages(session.getMessages(), player.getName(), name);
+            totalPages = Math.max(pageData.size(), 1);
+            page = totalPages - 1;
         }
         sendQuickActions(player, profile, page, totalPages);
     }
 
-    private ConversationDisplayMode getDisplayMode() {
-        ConversationSettings settings = plugin.getConfigService().getConversationSettings();
-        return settings != null ? settings.getDisplayMode() : ConversationDisplayMode.INVENTORY;
-    }
-
     private void sendQuickActions(Player player, VillagerProfile profile, Integer page, Integer totalPages) {
-        ConversationDisplayMode mode = getDisplayMode();
+        ConversationDisplayMode mode = getEffectiveDisplayMode(player);
         TextComponent line = new TextComponent();
         TextComponent prefix = new TextComponent(mode == ConversationDisplayMode.BOOK
-            ? "快捷操作（书本可直接翻页）："
+            ? "快捷操作："
             : "快捷操作：");
         prefix.setColor(ChatColor.GRAY);
         line.addExtra(prefix);
@@ -607,8 +673,8 @@ public class ConversationUiService implements Listener {
         }
         historyBtn.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, historyCommand));
         historyBtn.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-            new ComponentBuilder(mode == ConversationDisplayMode.BOOK ? "刷新书本页面" : "打开会话面板")
-                .color(ChatColor.YELLOW).create()));
+                new ComponentBuilder(mode == ConversationDisplayMode.BOOK ? "刷新书本页面" : "打开会话面板")
+                        .color(ChatColor.YELLOW).create()));
         line.addExtra(historyBtn);
         line.addExtra(space());
 
@@ -616,20 +682,20 @@ public class ConversationUiService implements Listener {
         endBtn.setColor(ChatColor.RED);
         endBtn.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/mrp end"));
         endBtn.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-            new ComponentBuilder("结束当前对话").color(ChatColor.YELLOW).create()));
+                new ComponentBuilder("结束当前对话").color(ChatColor.YELLOW).create()));
         line.addExtra(endBtn);
         line.addExtra(space());
 
         String clearTarget = profile.getCharacterId() > 0
-            ? String.valueOf(profile.getCharacterId())
-            : profile.getVillagerId().toString();
+                ? String.valueOf(profile.getCharacterId())
+                : profile.getVillagerId().toString();
 
         TextComponent resetBtn = new TextComponent("[重置对话]");
         resetBtn.setColor(ChatColor.GOLD);
         resetBtn.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND,
-            "/mrp character clear " + clearTarget));
+                "/mrp character clear " + clearTarget));
         resetBtn.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
-            new ComponentBuilder("清空与你的历史记录").color(ChatColor.YELLOW).create()));
+                new ComponentBuilder("清空与你的历史记录").color(ChatColor.YELLOW).create()));
         line.addExtra(resetBtn);
 
         if (mode == ConversationDisplayMode.BOOK && totalPages != null) {
@@ -639,11 +705,66 @@ public class ConversationUiService implements Listener {
             line.addExtra(hint);
         }
 
+        line.addExtra(space());
+        ConversationDisplayMode next = mode == ConversationDisplayMode.BOOK
+            ? ConversationDisplayMode.INVENTORY
+            : ConversationDisplayMode.BOOK;
+        TextComponent toggleBtn = new TextComponent(mode == ConversationDisplayMode.BOOK ? "[切换到面板]" : "[切换到书本]");
+        toggleBtn.setColor(ChatColor.AQUA);
+        toggleBtn.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND,
+            "/mrp view " + next.name().toLowerCase()));
+        toggleBtn.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT,
+            new ComponentBuilder("切换为 " + (next == ConversationDisplayMode.BOOK ? "书本模式" : "物品栏模式"))
+                .color(ChatColor.YELLOW).create()));
+        line.addExtra(toggleBtn);
+
         player.spigot().sendMessage(line);
     }
 
     private TextComponent space() {
         return new TextComponent(" ");
+    }
+
+    public ConversationDisplayMode setPlayerDisplayMode(Player player, ConversationDisplayMode mode) {
+        UUID playerId = player.getUniqueId();
+        if (mode == null) {
+            playerDisplayModes.remove(playerId);
+            return getConfiguredDisplayMode();
+        }
+        playerDisplayModes.put(playerId, mode);
+        return mode;
+    }
+
+    public ConversationDisplayMode togglePlayerDisplayMode(Player player) {
+        ConversationDisplayMode current = getEffectiveDisplayMode(player);
+        ConversationDisplayMode next = current == ConversationDisplayMode.BOOK
+            ? ConversationDisplayMode.INVENTORY
+            : ConversationDisplayMode.BOOK;
+        playerDisplayModes.put(player.getUniqueId(), next);
+        return next;
+    }
+
+    public ConversationDisplayMode getEffectiveDisplayMode(Player player) {
+        return getEffectiveDisplayMode(player.getUniqueId());
+    }
+
+    public ConversationDisplayMode getEffectiveDisplayMode(UUID playerId) {
+        return playerDisplayModes.getOrDefault(playerId, getConfiguredDisplayMode());
+    }
+
+    private ConversationDisplayMode getConfiguredDisplayMode() {
+        ConversationSettings settings = plugin.getConfigService().getConversationSettings();
+        return settings != null ? settings.getDisplayMode() : ConversationDisplayMode.INVENTORY;
+    }
+
+    private static class BookPageContent {
+        private final int chronoIndex;
+        private final String body;
+
+        BookPageContent(int chronoIndex, String body) {
+            this.chronoIndex = chronoIndex;
+            this.body = body;
+        }
     }
 
     private static class ConversationViewContext {
