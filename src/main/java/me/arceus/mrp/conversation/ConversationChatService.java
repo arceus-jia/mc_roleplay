@@ -11,6 +11,8 @@ import me.arceus.mrp.provider.ProviderResponse;
 import me.arceus.mrp.prompt.PromptService;
 import me.arceus.mrp.villager.VillagerProfile;
 import me.arceus.mrp.villager.VillagerPromptOverride;
+import me.arceus.mrp.villager.VillagerRewardOption;
+import me.arceus.mrp.villager.VillagerSuccessBehavior;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -23,6 +25,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 
 /**
  * Handles end-to-end chat flow between a player and a villager profile,
@@ -125,6 +128,15 @@ public class ConversationChatService {
             }
 
             String reply = response.getContent();
+            String trimmed = reply != null ? reply.trim() : "";
+            boolean isSuccess = isSuccessReply(trimmed, profile);
+
+            if (isSuccess) {
+                String successMessage = handleSuccessResponse(player, profile, session, trimmed);
+                result.complete(successMessage);
+                return;
+            }
+
             if (reply == null || reply.isBlank()) {
                 reply = "(沉默)";
             }
@@ -199,5 +211,86 @@ public class ConversationChatService {
         }
         int index = ThreadLocalRandom.current().nextInt(pool.size());
         return pool.get(index);
+    }
+
+    private boolean isSuccessReply(String reply, VillagerProfile profile) {
+        if (reply == null) {
+            return false;
+        }
+        String normalized = reply.trim();
+        if (normalized.equalsIgnoreCase("SUCCESS")) {
+            return true;
+        }
+        VillagerPromptOverride override = profile != null ? profile.getPromptOverride() : null;
+        VillagerSuccessBehavior success = override != null ? override.getSuccess() : null;
+        if (success == null || success.getMessage() == null) {
+            return false;
+        }
+        return normalized.equalsIgnoreCase(success.getMessage());
+    }
+
+    private String handleSuccessResponse(Player player, VillagerProfile profile, ConversationSession session, String rawReply) {
+        VillagerPromptOverride override = profile.getPromptOverride();
+        VillagerSuccessBehavior success = override != null ? override.getSuccess() : null;
+
+        String successMessage = success != null && success.getMessage() != null && !success.getMessage().isBlank()
+            ? success.getMessage().trim()
+            : "恭喜你回答正确！";
+
+        sessionManager.appendMessage(session, ProviderMessage.Role.ASSISTANT, successMessage);
+        plugin.getConversationLogger().log(
+            profile.getVillagerId(),
+            profile.getName(),
+            player.getUniqueId(),
+            player.getName(),
+            ProviderMessage.Role.ASSISTANT,
+            successMessage
+        );
+
+        String displayName = profile.getName() != null ? profile.getName() : "村民";
+        player.sendMessage(displayName + ": " + successMessage);
+
+        if (success != null && success.hasRewards()) {
+            grantReward(player, success.getRewardPool(), displayName);
+        }
+
+        if (success == null || success.shouldResetConversation()) {
+            sessionManager.clearSessionForPlayer(player.getUniqueId(), profile.getVillagerId());
+        }
+
+        return successMessage;
+    }
+
+    private void grantReward(Player player, List<VillagerRewardOption> rewardPool, String villagerName) {
+        List<VillagerRewardOption> pool = rewardPool.stream()
+            .filter(option -> option != null && (!option.getCommands().isEmpty() || !option.getMessages().isEmpty()))
+            .collect(Collectors.toList());
+        if (pool.isEmpty()) {
+            return;
+        }
+        VillagerRewardOption option = pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
+
+        if (!option.getMessages().isEmpty()) {
+            for (String raw : option.getMessages()) {
+                if (raw == null || raw.isBlank()) {
+                    continue;
+                }
+                String formatted = raw
+                    .replace("{player}", player.getName())
+                    .replace("{villager}", villagerName);
+                player.sendMessage(formatted);
+            }
+        }
+
+        option.getCommands().forEach(cmd -> {
+            if (cmd == null || cmd.isBlank()) {
+                return;
+            }
+            String formatted = cmd
+                .replace("{player}", player.getName())
+                .replace("{uuid}", player.getUniqueId().toString())
+                .replace("{villager}", villagerName);
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), formatted);
+        });
     }
 }

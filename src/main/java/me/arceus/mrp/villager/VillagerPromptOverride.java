@@ -14,6 +14,7 @@ public class VillagerPromptOverride {
     private Map<String, String> variables;
     private Boolean inheritDefaultNotes;
     private Map<String, List<String>> variableCandidates;
+    private VillagerSuccessBehavior success;
 
     // Gson requires a no-args constructor
     public VillagerPromptOverride() {
@@ -53,5 +54,9 @@ public class VillagerPromptOverride {
 
     public boolean hasVariableCandidates() {
         return variableCandidates != null && !variableCandidates.isEmpty();
+    }
+
+    public VillagerSuccessBehavior getSuccess() {
+        return success;
     }
 }
