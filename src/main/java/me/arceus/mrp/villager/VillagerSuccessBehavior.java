@@ -15,6 +15,7 @@ public class VillagerSuccessBehavior {
     private Boolean resetConversation;
     private List<VillagerRewardOption> rewardPool;
     private List<String> triggers;
+    private Boolean continueConversation;
 
     // Gson requires a no-args constructor
     public VillagerSuccessBehavior() {
@@ -25,6 +26,9 @@ public class VillagerSuccessBehavior {
     }
 
     public boolean shouldResetConversation() {
+        if (continueConversation != null) {
+            return !continueConversation;
+        }
         return resetConversation == null || resetConversation;
     }
 
@@ -41,5 +45,9 @@ public class VillagerSuccessBehavior {
             return DEFAULT_TRIGGERS;
         }
         return triggers;
+    }
+
+    public Boolean getContinueConversation() {
+        return continueConversation;
     }
 }

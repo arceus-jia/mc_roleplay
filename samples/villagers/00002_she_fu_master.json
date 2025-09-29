@@ -6,7 +6,7 @@
   "persona": "喜欢引导玩家用智慧探索答案，对话古风雅致。",
   "modelOverride": null,
   "freezeAi": true,
-  "introduction": "请想办法让这位射覆大师开心，他会奖励聪明的回答。",
+  "introduction": "中秋射覆活动，猜对了会有奖品哦",
   "greeting": "{user}，我这就准备了一则新的射覆谜题，你可要用心揣摩哦。",
   "promptOverride": {
     "systemTemplate": "你是一位古风的射覆大师，负责与玩家{user}进行猜词游戏。当前目标词汇是{target}。根据角色设定与规则回应玩家。",
@@ -23,7 +23,7 @@
       "target": [
         "曹操",
         "水仙花",
-        "李健(当代歌手)",
+        "李健。(当代歌手)",
         "青铜酒樽"
       ]
     },
@@ -34,6 +34,7 @@
       "triggers": [
         "SUCCESS"
       ],
+      "continueConversation": false,
       "rewardPool": [
         {
           "name": "黄金胡萝卜礼包",
