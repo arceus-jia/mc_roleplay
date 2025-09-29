@@ -32,6 +32,7 @@ public class ConversationSessionManager {
                 session.initializeHistory(snapshot.messages());
             }
             session.initializePromptVariables(snapshot.promptVariables());
+            session.setWelcomeDelivered(snapshot.welcomeDelivered());
             sessions.put(key, session);
         }
         activeVillager.put(playerId, villagerId);

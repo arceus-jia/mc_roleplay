@@ -9,9 +9,12 @@ import java.util.List;
  */
 public class VillagerSuccessBehavior {
 
+    private static final List<String> DEFAULT_TRIGGERS = List.of("SUCCESS");
+
     private String message;
     private Boolean resetConversation;
     private List<VillagerRewardOption> rewardPool;
+    private List<String> triggers;
 
     // Gson requires a no-args constructor
     public VillagerSuccessBehavior() {
@@ -31,5 +34,12 @@ public class VillagerSuccessBehavior {
 
     public boolean hasRewards() {
         return rewardPool != null && !rewardPool.isEmpty();
+    }
+
+    public List<String> getTriggers() {
+        if (triggers == null || triggers.isEmpty()) {
+            return DEFAULT_TRIGGERS;
+        }
+        return triggers;
     }
 }

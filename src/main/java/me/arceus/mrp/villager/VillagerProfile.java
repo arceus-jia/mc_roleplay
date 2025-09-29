@@ -12,6 +12,8 @@ public class VillagerProfile {
     private String modelOverride;
     private boolean freezeAi;
     private VillagerPromptOverride promptOverride;
+    private String greeting;
+    private String introduction;
 
     // Gson 需要无参构造函数
     public VillagerProfile() {
@@ -23,7 +25,9 @@ public class VillagerProfile {
                            String description,
                            String persona,
                            String modelOverride,
-                           VillagerPromptOverride promptOverride) {
+                           VillagerPromptOverride promptOverride,
+                           String greeting,
+                           String introduction) {
         this.villagerId = villagerId;
         this.characterId = characterId;
         this.name = name;
@@ -31,6 +35,8 @@ public class VillagerProfile {
         this.persona = persona;
         this.modelOverride = modelOverride;
         this.promptOverride = promptOverride;
+        this.greeting = greeting;
+        this.introduction = introduction;
     }
 
     public UUID getVillagerId() {
@@ -65,6 +71,22 @@ public class VillagerProfile {
         return promptOverride;
     }
 
+    public String getGreeting() {
+        return greeting;
+    }
+
+    public String getIntroduction() {
+        return introduction;
+    }
+
+    public boolean hasGreeting() {
+        return greeting != null && !greeting.isBlank();
+    }
+
+    public boolean hasIntroduction() {
+        return introduction != null && !introduction.isBlank();
+    }
+
     public void setVillagerId(UUID villagerId) {
         this.villagerId = villagerId;
     }
@@ -95,5 +117,13 @@ public class VillagerProfile {
 
     public void setPromptOverride(VillagerPromptOverride promptOverride) {
         this.promptOverride = promptOverride;
+    }
+
+    public void setGreeting(String greeting) {
+        this.greeting = greeting;
+    }
+
+    public void setIntroduction(String introduction) {
+        this.introduction = introduction;
     }
 }

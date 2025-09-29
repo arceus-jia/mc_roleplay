@@ -52,7 +52,7 @@ public class ConversationStorage {
             }
             if (root.isJsonArray()) {
                 MessageRecord[] records = GSON.fromJson(root, MessageRecord[].class);
-                return new ConversationSnapshot(toMessages(records), Collections.emptyMap());
+                return new ConversationSnapshot(toMessages(records), Collections.emptyMap(), false);
             }
             if (root.isJsonObject()) {
                 StoredConversation stored = GSON.fromJson(root, StoredConversation.class);
@@ -60,7 +60,8 @@ public class ConversationStorage {
                 Map<String, String> variables = stored.promptVariables != null
                     ? new HashMap<>(stored.promptVariables)
                     : Collections.emptyMap();
-                return new ConversationSnapshot(messages, variables);
+                boolean welcomeDelivered = stored.welcomeDelivered != null && stored.welcomeDelivered;
+                return new ConversationSnapshot(messages, variables, welcomeDelivered);
             }
             return ConversationSnapshot.empty();
         } catch (IOException e) {
@@ -70,10 +71,15 @@ public class ConversationStorage {
     }
 
     public void saveHistory(ConversationSession session) {
-        saveSnapshot(session.getPlayerId(), session.getVillagerId(), session.getMessages(), session.getPromptVariables());
+        saveSnapshot(session);
     }
 
-    private void saveSnapshot(UUID playerId, UUID villagerId, List<ConversationMessage> messages, Map<String, String> promptVariables) {
+    private void saveSnapshot(ConversationSession session) {
+        UUID playerId = session.getPlayerId();
+        UUID villagerId = session.getVillagerId();
+        List<ConversationMessage> messages = session.getMessages();
+        Map<String, String> promptVariables = session.getPromptVariables();
+
         Path file = conversationFile(playerId, villagerId);
         Path legacyFile = baseDir.resolve(villagerId.toString()).resolve(playerId.toString() + ".json");
         try {
@@ -89,6 +95,7 @@ public class ConversationStorage {
                 if (promptVariables != null && !promptVariables.isEmpty()) {
                     stored.promptVariables = new HashMap<>(promptVariables);
                 }
+                stored.welcomeDelivered = session.isWelcomeDelivered();
                 GSON.toJson(stored, writer);
             }
             if (!file.equals(legacyFile) && Files.exists(legacyFile)) {
@@ -110,18 +117,20 @@ public class ConversationStorage {
     public static class ConversationSnapshot {
         private final List<ConversationMessage> messages;
         private final Map<String, String> promptVariables;
+        private final boolean welcomeDelivered;
 
-        ConversationSnapshot(List<ConversationMessage> messages, Map<String, String> promptVariables) {
+        ConversationSnapshot(List<ConversationMessage> messages, Map<String, String> promptVariables, boolean welcomeDelivered) {
             this.messages = messages != null
                 ? Collections.unmodifiableList(new ArrayList<>(messages))
                 : Collections.emptyList();
             this.promptVariables = promptVariables != null
                 ? Collections.unmodifiableMap(new HashMap<>(promptVariables))
                 : Collections.emptyMap();
+            this.welcomeDelivered = welcomeDelivered;
         }
 
         public static ConversationSnapshot empty() {
-            return new ConversationSnapshot(Collections.emptyList(), Collections.emptyMap());
+            return new ConversationSnapshot(Collections.emptyList(), Collections.emptyMap(), false);
         }
 
         public List<ConversationMessage> messages() {
@@ -131,11 +140,16 @@ public class ConversationStorage {
         public Map<String, String> promptVariables() {
             return promptVariables;
         }
+
+        public boolean welcomeDelivered() {
+            return welcomeDelivered;
+        }
     }
 
     private static class StoredConversation {
         List<MessageRecord> messages;
         Map<String, String> promptVariables;
+        Boolean welcomeDelivered;
     }
 
     private List<ConversationMessage> toMessages(MessageRecord[] records) {

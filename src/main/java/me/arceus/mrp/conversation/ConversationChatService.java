@@ -38,6 +38,7 @@ public class ConversationChatService {
     private final ConversationSessionManager sessionManager;
     private final PromptService promptService;
     private final Set<UUID> pendingPlayers = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final List<String> DEFAULT_SUCCESS_TRIGGERS = List.of("SUCCESS");
 
     public ConversationChatService(MrpPlugin plugin) {
         this.plugin = plugin;
@@ -75,7 +76,7 @@ public class ConversationChatService {
         }
 
         ConversationSession session = sessionManager.getOrCreate(playerId, profile.getVillagerId());
-        preparePromptVariables(profile, session);
+        ensurePromptVariables(profile, session);
         sessionManager.appendMessage(session, ProviderMessage.Role.USER, playerInput);
         plugin.getConversationLogger().log(
             profile.getVillagerId(),
@@ -160,7 +161,7 @@ public class ConversationChatService {
         return result;
     }
 
-    private void preparePromptVariables(VillagerProfile profile, ConversationSession session) {
+    public void ensurePromptVariables(VillagerProfile profile, ConversationSession session) {
         if (profile == null || session == null) {
             return;
         }
@@ -218,11 +219,14 @@ public class ConversationChatService {
             return false;
         }
         String normalized = reply.trim();
-        if (normalized.equalsIgnoreCase("SUCCESS")) {
-            return true;
-        }
         VillagerPromptOverride override = profile != null ? profile.getPromptOverride() : null;
         VillagerSuccessBehavior success = override != null ? override.getSuccess() : null;
+        List<String> triggers = success != null ? success.getTriggers() : DEFAULT_SUCCESS_TRIGGERS;
+        for (String trigger : triggers) {
+            if (trigger != null && normalized.equalsIgnoreCase(trigger.trim())) {
+                return true;
+            }
+        }
         if (success == null || success.getMessage() == null) {
             return false;
         }
@@ -268,7 +272,11 @@ public class ConversationChatService {
         if (pool.isEmpty()) {
             return;
         }
-        VillagerRewardOption option = pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
+
+        VillagerRewardOption option = pickWeightedReward(pool);
+        if (option == null) {
+            return;
+        }
 
         if (!option.getMessages().isEmpty()) {
             for (String raw : option.getMessages()) {
@@ -292,5 +300,35 @@ public class ConversationChatService {
                 .replace("{villager}", villagerName);
             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), formatted);
         });
+    }
+
+    private VillagerRewardOption pickWeightedReward(List<VillagerRewardOption> pool) {
+        double totalWeight = 0D;
+        List<VillagerRewardOption> weighted = new ArrayList<>(pool.size());
+        for (VillagerRewardOption option : pool) {
+            double weight = option.getWeight();
+            if (weight <= 0D) {
+                continue;
+            }
+            totalWeight += weight;
+            weighted.add(option);
+        }
+
+        if (!weighted.isEmpty() && totalWeight > 0D) {
+            double random = ThreadLocalRandom.current().nextDouble(totalWeight);
+            double cumulative = 0D;
+            for (VillagerRewardOption option : weighted) {
+                cumulative += option.getWeight();
+                if (random < cumulative) {
+                    return option;
+                }
+            }
+            return weighted.get(weighted.size() - 1);
+        }
+
+        if (!pool.isEmpty()) {
+            return pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
+        }
+        return null;
     }
 }

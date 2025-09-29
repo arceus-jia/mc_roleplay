@@ -15,6 +15,7 @@ public class ConversationSession {
     private final UUID villagerId;
     private final List<ConversationMessage> messages = new ArrayList<>();
     private final Map<String, String> promptVariables = new HashMap<>();
+    private boolean welcomeDelivered;
 
     public ConversationSession(UUID playerId, UUID villagerId) {
         this.playerId = playerId;
@@ -51,6 +52,7 @@ public class ConversationSession {
 
     void clearMessages() {
         messages.clear();
+        welcomeDelivered = false;
     }
 
     public Map<String, String> getPromptVariables() {
@@ -74,5 +76,13 @@ public class ConversationSession {
 
     public boolean hasPromptVariable(String key) {
         return promptVariables.containsKey(key);
+    }
+
+    public boolean isWelcomeDelivered() {
+        return welcomeDelivered;
+    }
+
+    public void setWelcomeDelivered(boolean welcomeDelivered) {
+        this.welcomeDelivered = welcomeDelivered;
     }
 }

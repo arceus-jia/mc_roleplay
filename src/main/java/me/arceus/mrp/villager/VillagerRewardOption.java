@@ -11,6 +11,7 @@ public class VillagerRewardOption {
     private String name;
     private List<String> commands;
     private List<String> messages;
+    private double weight;
 
     // Gson requires a no-args constructor
     public VillagerRewardOption() {
@@ -26,5 +27,9 @@ public class VillagerRewardOption {
 
     public List<String> getMessages() {
         return messages != null ? messages : Collections.emptyList();
+    }
+
+    public double getWeight() {
+        return weight > 0 ? weight : 1.0D;
     }
 }

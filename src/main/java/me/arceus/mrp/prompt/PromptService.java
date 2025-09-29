@@ -37,25 +37,7 @@ public class PromptService {
             template = FALLBACK_TEMPLATE;
         }
 
-        String villagerName = profile != null && profile.getName() != null ? profile.getName() : "村民";
-        String description = profile != null && profile.getDescription() != null ? profile.getDescription() : "这位村民还没有简介";
-        String persona = profile != null && profile.getPersona() != null ? profile.getPersona() : "";
-        String userName = playerName != null ? playerName : "玩家";
-
-        Map<String, String> replacements = new LinkedHashMap<>();
-        replacements.put("name", villagerName);
-        replacements.put("user", userName);
-        replacements.put("description", description);
-        replacements.put("persona", persona);
-        if (override != null && override.hasVariables()) {
-            replacements.putAll(override.getVariables());
-        }
-        if (session != null) {
-            Map<String, String> promptVariables = session.getPromptVariables();
-            if (!promptVariables.isEmpty()) {
-                replacements.putAll(promptVariables);
-            }
-        }
+        Map<String, String> replacements = buildReplacements(profile, session, playerName, override);
 
         String rendered = applyReplacements(template, replacements);
 
@@ -79,6 +61,43 @@ public class PromptService {
             rendered = rendered + "\n注意事项:\n" + joiner;
         }
         return rendered;
+    }
+
+    public String renderTemplate(String template, VillagerProfile profile, ConversationSession session, String playerName) {
+        if (template == null || template.isBlank()) {
+            return "";
+        }
+        VillagerPromptOverride override = profile != null ? profile.getPromptOverride() : null;
+        Map<String, String> replacements = buildReplacements(profile, session, playerName, override);
+        return applyReplacements(template, replacements);
+    }
+
+    private Map<String, String> buildReplacements(VillagerProfile profile,
+                                                  ConversationSession session,
+                                                  String playerName,
+                                                  VillagerPromptOverride override) {
+        Map<String, String> replacements = new LinkedHashMap<>();
+
+        String villagerName = profile != null && profile.getName() != null ? profile.getName() : "村民";
+        String description = profile != null && profile.getDescription() != null ? profile.getDescription() : "这位村民还没有简介";
+        String persona = profile != null && profile.getPersona() != null ? profile.getPersona() : "";
+        String userName = playerName != null ? playerName : "玩家";
+
+        replacements.put("name", villagerName);
+        replacements.put("user", userName);
+        replacements.put("description", description);
+        replacements.put("persona", persona);
+
+        if (override != null && override.hasVariables()) {
+            replacements.putAll(override.getVariables());
+        }
+        if (session != null) {
+            Map<String, String> promptVariables = session.getPromptVariables();
+            if (!promptVariables.isEmpty()) {
+                replacements.putAll(promptVariables);
+            }
+        }
+        return replacements;
     }
 
     private String applyReplacements(String template, Map<String, String> replacements) {

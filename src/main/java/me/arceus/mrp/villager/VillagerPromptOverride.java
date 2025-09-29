@@ -59,4 +59,5 @@ public class VillagerPromptOverride {
     public VillagerSuccessBehavior getSuccess() {
         return success;
     }
+
 }
