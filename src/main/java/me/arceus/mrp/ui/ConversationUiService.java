@@ -8,7 +8,6 @@ import me.arceus.mrp.conversation.ConversationSessionManager;
 import me.arceus.mrp.config.ConversationDisplayMode;
 import me.arceus.mrp.config.ConversationSettings;
 import me.arceus.mrp.provider.ProviderMessage;
-import me.arceus.mrp.prompt.PromptService;
 import me.arceus.mrp.villager.VillagerProfile;
 import me.arceus.mrp.villager.VillagerRegistry;
 import net.md_5.bungee.api.ChatColor;
@@ -108,56 +107,7 @@ public class ConversationUiService implements Listener {
         if (profile == null || session == null) {
             return;
         }
-
-        boolean hasGreeting = profile.hasGreeting();
-        boolean hasIntroduction = profile.hasIntroduction();
-        if (!hasGreeting && !hasIntroduction) {
-            return;
-        }
-
-        if (session.isWelcomeDelivered()) {
-            return;
-        }
-
-        PromptService promptService = plugin.getPromptService();
-        if (promptService == null) {
-            return;
-        }
-
-        String villagerName = profile.getName() != null ? profile.getName() : "村民";
-        String playerName = player.getName();
-
-        if (hasIntroduction) {
-            String intro = promptService.renderTemplate(profile.getIntroduction(), profile, session, playerName).trim();
-            if (!intro.isEmpty()) {
-                player.sendMessage(ChatColor.AQUA + "[介绍] " + ChatColor.RESET + intro);
-            }
-        }
-
-        boolean delivered = false;
-        if (hasGreeting) {
-            String greeting = promptService.renderTemplate(profile.getGreeting(), profile, session, playerName).trim();
-            if (!greeting.isEmpty()) {
-                session.setWelcomeDelivered(true);
-                sessionManager.appendMessage(session, ProviderMessage.Role.ASSISTANT, greeting);
-                plugin.getConversationLogger().log(
-                    profile.getVillagerId(),
-                    profile.getName(),
-                    player.getUniqueId(),
-                    playerName,
-                    ProviderMessage.Role.ASSISTANT,
-                    greeting
-                );
-                player.sendMessage(villagerName + ": " + greeting);
-                delivered = true;
-            }
-        }
-
-        if (!delivered) {
-            session.setWelcomeDelivered(true);
-        }
-
-        plugin.getConversationStorage().saveHistory(session);
+        chatService.ensureWelcomeMessages(player, profile, session);
     }
 
     private Inventory buildInventory(Player player, VillagerProfile profile, List<ConversationMessage> history,
@@ -640,6 +590,10 @@ public class ConversationUiService implements Listener {
         openViews.remove(playerId);
         chatCaptureTargets.remove(playerId);
         playerDisplayModes.remove(playerId);
+    }
+
+    public void clearChatCapture(UUID playerId) {
+        chatCaptureTargets.remove(playerId);
     }
 
     @EventHandler

@@ -13,6 +13,9 @@ import me.arceus.mrp.villager.VillagerProfile;
 import me.arceus.mrp.villager.VillagerPromptOverride;
 import me.arceus.mrp.villager.VillagerRewardOption;
 import me.arceus.mrp.villager.VillagerSuccessBehavior;
+import net.md_5.bungee.api.ChatColor;
+import net.md_5.bungee.api.ChatMessageType;
+import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -67,7 +70,17 @@ public class ConversationChatService {
             return result;
         }
 
-        LLMProvider provider = plugin.getProviderRegistry().getDefaultProvider();
+        String providerOverride = profile.getProviderOverride();
+        LLMProvider provider = null;
+        if (providerOverride != null && !providerOverride.isBlank()) {
+            provider = plugin.getProviderRegistry().getProvider(providerOverride);
+            if (provider == null) {
+                plugin.getLogger().warning("指定的 Provider '" + providerOverride + "' 不存在，使用默认 Provider");
+            }
+        }
+        if (provider == null) {
+            provider = plugin.getProviderRegistry().getDefaultProvider();
+        }
         if (provider == null) {
             pendingPlayers.remove(playerId);
             player.sendMessage("当前未配置可用的 Provider");
@@ -77,6 +90,7 @@ public class ConversationChatService {
 
         ConversationSession session = sessionManager.getOrCreate(playerId, profile.getVillagerId());
         ensurePromptVariables(profile, session);
+        ensureWelcomeMessages(player, profile, session);
         sessionManager.appendMessage(session, ProviderMessage.Role.USER, playerInput);
         plugin.getConversationLogger().log(
             profile.getVillagerId(),
@@ -86,6 +100,8 @@ public class ConversationChatService {
             ProviderMessage.Role.USER,
             playerInput
         );
+
+        player.sendMessage(ChatColor.GRAY + "你: " + ChatColor.RESET + playerInput);
 
         String systemPrompt = promptService.buildSystemPrompt(profile, session, player.getName());
 
@@ -104,8 +120,12 @@ public class ConversationChatService {
         ProviderSettings providerSettings = plugin.getConfigService().getProviderSettings();
         ProviderConfig providerConfig = providerSettings != null ? providerSettings.getProvider(provider.getName()) : null;
         double temperature = providerConfig != null ? providerConfig.getTemperature() : 0.8D;
+        String model = profile.getModelOverride();
+        if ((model == null || model.isBlank()) && providerConfig != null) {
+            model = providerConfig.getModel();
+        }
 
-        ProviderRequest request = new ProviderRequest(messages, maxTokens, temperature);
+        ProviderRequest request = new ProviderRequest(messages, maxTokens, temperature, model);
 
         player.sendMessage("村民正在思考...");
 
@@ -212,6 +232,55 @@ public class ConversationChatService {
         }
         int index = ThreadLocalRandom.current().nextInt(pool.size());
         return pool.get(index);
+    }
+
+    public void ensureWelcomeMessages(Player player, VillagerProfile profile, ConversationSession session) {
+        if (player == null || profile == null || session == null || session.isWelcomeDelivered()) {
+            return;
+        }
+
+        boolean hasGreeting = profile.hasGreeting();
+        boolean hasIntroduction = profile.hasIntroduction();
+        if (!hasGreeting && !hasIntroduction) {
+            session.setWelcomeDelivered(true);
+            plugin.getConversationStorage().saveHistory(session);
+            return;
+        }
+
+        String playerName = player.getName();
+        String villagerName = profile.getName() != null ? profile.getName() : "村民";
+
+        if (hasIntroduction) {
+            String intro = promptService.renderTemplate(profile.getIntroduction(), profile, session, playerName).trim();
+            if (!intro.isEmpty()) {
+                player.sendMessage(ChatColor.AQUA + "[介绍] " + ChatColor.RESET + intro);
+            }
+        }
+
+        boolean deliveredGreeting = false;
+        if (hasGreeting) {
+            String greeting = promptService.renderTemplate(profile.getGreeting(), profile, session, playerName).trim();
+            if (!greeting.isEmpty()) {
+                sessionManager.appendMessage(session, ProviderMessage.Role.ASSISTANT, greeting);
+                plugin.getConversationLogger().log(
+                    profile.getVillagerId(),
+                    profile.getName(),
+                    player.getUniqueId(),
+                    playerName,
+                    ProviderMessage.Role.ASSISTANT,
+                    greeting
+                );
+                player.sendMessage(villagerName + ": " + greeting);
+                player.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                    new TextComponent(ChatColor.GOLD + villagerName + ChatColor.RESET + " · " + greeting));
+                deliveredGreeting = true;
+            }
+        }
+
+        session.setWelcomeDelivered(true);
+        if (!deliveredGreeting) {
+            plugin.getConversationStorage().saveHistory(session);
+        }
     }
 
     private boolean isSuccessReply(String reply, VillagerProfile profile) {

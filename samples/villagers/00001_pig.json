@@ -7,5 +7,6 @@
   "modelOverride": null,
   "freezeAi": true,
   "introduction": "请多关照这位落魄的旧服主。",
-  "greeting": "哟，{user}，想听听我当年经营服务器的故事吗？"
+  "greeting": "哟，{user}，想听听我当年经营服务器的故事吗？",
+  "providerOverride": null
 }

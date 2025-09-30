@@ -94,6 +94,7 @@ public class MrpCommandExecutor implements CommandExecutor {
             null,
             null,
             null,
+            null,
             null
         );
 
@@ -309,6 +310,9 @@ public class MrpCommandExecutor implements CommandExecutor {
         }
 
         boolean ended = plugin.getSessionManager().endSessionForPlayer(player.getUniqueId());
+        if (plugin.getConversationUiService() != null) {
+            plugin.getConversationUiService().clearChatCapture(player.getUniqueId());
+        }
         if (ended) {
             sender.sendMessage("已结束当前村民对话。");
         } else {

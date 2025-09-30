@@ -63,7 +63,11 @@ public class OpenAiProvider implements LLMProvider {
 
     private ProviderResponse doGenerate(ProviderRequest request) {
         JsonObject payload = new JsonObject();
-        payload.addProperty("model", config.getModel());
+        String model = request.getModel();
+        if (model == null || model.isBlank()) {
+            model = config.getModel();
+        }
+        payload.addProperty("model", model);
         payload.addProperty("temperature", request.getTemperature());
         if (request.getMaxTokens() > 0) {
             payload.addProperty("max_tokens", request.getMaxTokens());

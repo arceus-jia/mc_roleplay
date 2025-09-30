@@ -14,6 +14,7 @@ public class VillagerProfile {
     private VillagerPromptOverride promptOverride;
     private String greeting;
     private String introduction;
+    private String providerOverride;
 
     // Gson 需要无参构造函数
     public VillagerProfile() {
@@ -27,7 +28,8 @@ public class VillagerProfile {
                            String modelOverride,
                            VillagerPromptOverride promptOverride,
                            String greeting,
-                           String introduction) {
+                           String introduction,
+                           String providerOverride) {
         this.villagerId = villagerId;
         this.characterId = characterId;
         this.name = name;
@@ -37,6 +39,7 @@ public class VillagerProfile {
         this.promptOverride = promptOverride;
         this.greeting = greeting;
         this.introduction = introduction;
+        this.providerOverride = providerOverride;
     }
 
     public UUID getVillagerId() {
@@ -87,6 +90,10 @@ public class VillagerProfile {
         return introduction != null && !introduction.isBlank();
     }
 
+    public String getProviderOverride() {
+        return providerOverride;
+    }
+
     public void setVillagerId(UUID villagerId) {
         this.villagerId = villagerId;
     }
@@ -125,5 +132,9 @@ public class VillagerProfile {
 
     public void setIntroduction(String introduction) {
         this.introduction = introduction;
+    }
+
+    public void setProviderOverride(String providerOverride) {
+        this.providerOverride = providerOverride;
     }
 }
